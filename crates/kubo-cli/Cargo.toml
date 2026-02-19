@@ -1,0 +1,12 @@
+[package]
+name = "kubo-cli"
+version.workspace = true
+edition.workspace = true
+description = "CLI for kubo: state what you want, get a pipeline"
+
+[[bin]]
+name = "kubo"
+path = "src/main.rs"
+
+[dependencies]
+kubo-core = { path = "../kubo-core" }

@@ -1,0 +1,8 @@
+[package]
+name = "kubo-web"
+version.workspace = true
+edition.workspace = true
+description = "Browser interface for kubo: inbox, active chains, library"
+
+[dependencies]
+kubo-core = { path = "../kubo-core" }

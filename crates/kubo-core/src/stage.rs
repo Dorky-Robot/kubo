@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// A single step in an action chain.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type")]
 pub enum Stage {
     /// A shell command (curl, jq, any executable).

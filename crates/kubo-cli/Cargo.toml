@@ -2,7 +2,7 @@
 name = "kubo-cli"
 version.workspace = true
 edition.workspace = true
-description = "CLI for kubo: state what you want, get a pipeline"
+description = "CLI for kubo: isolated dev environments in Docker"
 
 [[bin]]
 name = "kubo"
@@ -11,4 +11,3 @@ path = "src/main.rs"
 [dependencies]
 kubo-core = { path = "../kubo-core" }
 clap = { version = "4", features = ["derive"] }
-toml = "0.8"

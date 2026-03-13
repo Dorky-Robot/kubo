@@ -1,58 +1,52 @@
+use std::path::PathBuf;
+
 use clap::{Parser, Subcommand};
-use kubo_core::catalog::Catalog;
-use kubo_core::claude::ClaudeGenerator;
-use kubo_core::generator::Generator;
-use kubo_core::intent::Intent;
+use kubo_core::{Container, ContainerStatus};
 
 #[derive(Parser)]
-#[command(name = "kubo", about = "State what you want, get a pipeline")]
+#[command(name = "kubo", about = "Isolated dev environments in Docker")]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
 
-    /// Natural language intent (shorthand for `kubo do "..."`)
-    intent: Option<String>,
+    /// Directory to open in an isolated container
+    path: Option<PathBuf>,
 }
 
 #[derive(Subcommand)]
 enum Command {
-    /// Generate or find a pipeline from intent
-    Do {
-        /// Natural language intent
-        intent: String,
-        /// Show the chain without executing
-        #[arg(long)]
-        dry_run: bool,
-    },
-    /// List all saved chains
-    List,
-    /// Show details of a saved chain
-    Show {
-        /// Chain name
+    /// List all kubo containers
+    Ls,
+    /// Stop a running kubo container
+    Stop {
+        /// Container name (e.g. kubo-myproject)
         name: String,
     },
-    /// Re-run an existing chain
-    Run {
-        /// Chain name
-        name: String,
-    },
-    /// Delete a saved chain
+    /// Remove a kubo container
     Rm {
-        /// Chain name
+        /// Container name (e.g. kubo-myproject)
         name: String,
     },
+    /// Build or rebuild the kubo Docker image
+    Build,
 }
 
 fn main() {
     let cli = Cli::parse();
 
     let result = match cli.command {
-        Some(cmd) => run_command(cmd),
-        None => match cli.intent {
-            Some(intent) => run_intent(&intent, false),
+        Some(Command::Ls) => cmd_ls(),
+        Some(Command::Stop { name }) => cmd_stop(&name),
+        Some(Command::Rm { name }) => cmd_rm(&name),
+        Some(Command::Build) => cmd_build(),
+        None => match cli.path {
+            Some(path) => cmd_open(&path),
             None => {
-                eprintln!("Usage: kubo \"what you want\" or kubo <command>");
-                eprintln!("Try: kubo --help");
+                eprintln!("Usage: kubo <directory>");
+                eprintln!("       kubo ls");
+                eprintln!("       kubo stop <name>");
+                eprintln!("       kubo rm <name>");
+                eprintln!("\nTry: kubo .");
                 std::process::exit(1);
             }
         },
@@ -64,188 +58,121 @@ fn main() {
     }
 }
 
-fn run_command(cmd: Command) -> Result<(), Box<dyn std::error::Error>> {
-    match cmd {
-        Command::Do { intent, dry_run } => run_intent(&intent, dry_run),
-        Command::List => cmd_list(),
-        Command::Show { name } => cmd_show(&name),
-        Command::Run { name } => cmd_run(&name),
-        Command::Rm { name } => cmd_rm(&name),
-    }
-}
-
-fn run_intent(text: &str, dry_run: bool) -> Result<(), Box<dyn std::error::Error>> {
-    let catalog = Catalog::open()?;
-
-    // Search for an existing chain
-    let matches = catalog.search(text)?;
-    if let Some(chain) = matches.first() {
-        println!("Found existing chain: {}", chain.chain.name);
-        print_chain(chain);
-        if !dry_run {
-            execute_chain(chain);
-        }
+fn ensure_image() -> Result<(), Box<dyn std::error::Error>> {
+    if Container::image_exists()? {
         return Ok(());
     }
 
-    // Generate a new chain
-    println!("No matching chain found. Generating...");
-    let generator = ClaudeGenerator::from_env()?;
-    let intent = Intent {
-        text: text.to_string(),
+    eprintln!("kubo image not found, building...");
+
+    // Find the image directory relative to the kubo binary or source
+    let image_dir = find_image_dir()?;
+    Container::build_image(&image_dir)?;
+    eprintln!("Image built successfully.");
+    Ok(())
+}
+
+fn find_image_dir() -> Result<PathBuf, Box<dyn std::error::Error>> {
+    // Check next to the binary first (installed layout)
+    if let Ok(exe) = std::env::current_exe() {
+        let beside_exe = exe.parent().unwrap_or(exe.as_path()).join("kubo-image");
+        if beside_exe.join("Dockerfile").exists() {
+            return Ok(beside_exe);
+        }
+    }
+
+    // Check KUBO_IMAGE_DIR env var
+    if let Ok(dir) = std::env::var("KUBO_IMAGE_DIR") {
+        let p = PathBuf::from(&dir);
+        if p.join("Dockerfile").exists() {
+            return Ok(p);
+        }
+    }
+
+    // Walk up from CWD looking for kubo repo with image/ dir
+    let mut dir = std::env::current_dir()?;
+    loop {
+        let candidate = dir.join("image");
+        if candidate.join("Dockerfile").exists() {
+            return Ok(candidate);
+        }
+        if !dir.pop() {
+            break;
+        }
+    }
+
+    Err("cannot find kubo image directory. Set KUBO_IMAGE_DIR or run from the kubo repo.".into())
+}
+
+fn cmd_open(path: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
+    Container::check_docker()?;
+    ensure_image()?;
+
+    let container = Container::from_path(path)?;
+
+    let created = container.ensure_running()?;
+    if created {
+        eprintln!("Created container: {}", container.name);
+    } else {
+        eprintln!("Attaching to container: {}", container.name);
+    }
+
+    let status = container.exec_shell()?;
+    std::process::exit(status.code().unwrap_or(1));
+}
+
+fn cmd_ls() -> Result<(), Box<dyn std::error::Error>> {
+    Container::check_docker()?;
+
+    let containers = Container::list_all()?;
+
+    if containers.is_empty() {
+        println!("No kubo containers. Try: kubo .");
+        return Ok(());
+    }
+
+    println!("{:<24} {:<20} PATH", "NAME", "STATUS");
+    for ContainerStatus {
+        name,
+        status,
+        host_path,
+    } in &containers
+    {
+        println!("{:<24} {:<20} {}", name, status, host_path);
+    }
+
+    Ok(())
+}
+
+fn cmd_stop(name: &str) -> Result<(), Box<dyn std::error::Error>> {
+    Container::check_docker()?;
+
+    let container = Container {
+        name: name.to_string(),
+        host_path: PathBuf::new(),
     };
-    let chain = generator.generate(&intent)?;
-
-    println!("\nGenerated chain: {}", chain.chain.name);
-    print_chain(&chain);
-
-    // Save to catalog
-    let path = catalog.save(&chain)?;
-    println!("\nSaved to: {}", path.display());
-
-    if !dry_run {
-        execute_chain(&chain);
-    }
-
-    Ok(())
-}
-
-fn cmd_list() -> Result<(), Box<dyn std::error::Error>> {
-    let catalog = Catalog::open()?;
-    let chains = catalog.list()?;
-
-    if chains.is_empty() {
-        println!("No chains saved yet. Try: kubo \"what should we get for dinner?\"");
-        return Ok(());
-    }
-
-    println!("{:<24} INTENT", "NAME");
-    println!("{:<24} ------", "----");
-    for chain in &chains {
-        let intent_preview = if chain.chain.intent.len() > 50 {
-            format!("{}...", &chain.chain.intent[..50])
-        } else {
-            chain.chain.intent.clone()
-        };
-        println!("{:<24} {}", chain.chain.name, intent_preview);
-    }
-    println!("\n{} chain(s)", chains.len());
-
-    Ok(())
-}
-
-fn cmd_show(name: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let catalog = Catalog::open()?;
-    match catalog.load(name)? {
-        Some(chain) => {
-            print_chain(&chain);
-            println!("\n--- Raw TOML ---");
-            println!("{}", toml::to_string_pretty(&chain)?);
-        }
-        None => {
-            eprintln!("Chain '{name}' not found");
-            std::process::exit(1);
-        }
-    }
-    Ok(())
-}
-
-fn cmd_run(name: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let catalog = Catalog::open()?;
-    match catalog.load(name)? {
-        Some(chain) => {
-            print_chain(&chain);
-            execute_chain(&chain);
-        }
-        None => {
-            eprintln!("Chain '{name}' not found");
-            std::process::exit(1);
-        }
-    }
+    container.stop()?;
+    println!("Stopped {name}");
     Ok(())
 }
 
 fn cmd_rm(name: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let catalog = Catalog::open()?;
-    if catalog.delete(name)? {
-        println!("Deleted chain '{name}'");
-    } else {
-        eprintln!("Chain '{name}' not found");
-        std::process::exit(1);
-    }
+    Container::check_docker()?;
+
+    let container = Container {
+        name: name.to_string(),
+        host_path: PathBuf::new(),
+    };
+    container.remove()?;
+    println!("Removed {name}");
     Ok(())
 }
 
-fn print_chain(chain: &kubo_core::chain::ActionChain) {
-    println!("  intent: {}", chain.chain.intent);
-    println!("  created: {}", chain.chain.created_at);
-    if !chain.chain.tags.is_empty() {
-        println!("  tags: {}", chain.chain.tags.join(", "));
-    }
-    println!("  stages:");
-    for (i, stage) in chain.stages.iter().enumerate() {
-        match stage {
-            kubo_core::stage::Stage::Shell { command } => {
-                println!("    {}. [shell] {}", i + 1, command);
-            }
-            kubo_core::stage::Stage::Human {
-                role,
-                actor,
-                prompt,
-            } => {
-                println!("    {}. [human] {} ({}) — {}", i + 1, role, actor, prompt);
-            }
-        }
-    }
-}
-
-fn execute_chain(chain: &kubo_core::chain::ActionChain) {
-    use kubo_core::stage::Stage;
-
-    // Build tao pipe command from stages
-    let mut tao_args: Vec<String> = Vec::new();
-
-    for stage in &chain.stages {
-        match stage {
-            Stage::Shell { command } => {
-                tao_args.push(command.clone());
-            }
-            Stage::Human {
-                role,
-                actor,
-                prompt,
-            } => {
-                tao_args.push(format!("echo '{}'", prompt.replace('\'', "'\\''")));
-                tao_args.push(format!("tao echo {role} {actor}"));
-            }
-        }
-    }
-
-    if tao_args.is_empty() {
-        println!("\n(no stages to execute)");
-        return;
-    }
-
-    let cmd_str = tao_args.join(" -- ");
-    println!("\n> tao pipe {cmd_str}");
-
-    // Build args: tao pipe "stage1" -- "stage2" -- "stage3"
-    let mut args: Vec<&str> = vec!["pipe"];
-    for (i, arg) in tao_args.iter().enumerate() {
-        if i > 0 {
-            args.push("--");
-        }
-        args.push(arg);
-    }
-
-    let status = std::process::Command::new("tao").args(&args).status();
-
-    match status {
-        Ok(s) if s.success() => {}
-        Ok(s) => eprintln!("tao exited with: {s}"),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            eprintln!("tao not found — install tao to execute pipelines");
-        }
-        Err(e) => eprintln!("failed to run tao: {e}"),
-    }
+fn cmd_build() -> Result<(), Box<dyn std::error::Error>> {
+    Container::check_docker()?;
+    let image_dir = find_image_dir()?;
+    eprintln!("Building kubo image from {}...", image_dir.display());
+    Container::build_image(&image_dir)?;
+    eprintln!("Done.");
+    Ok(())
 }

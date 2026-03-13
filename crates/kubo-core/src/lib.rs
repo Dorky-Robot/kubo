@@ -1,6 +1,5 @@
-pub mod catalog;
-pub mod chain;
-pub mod claude;
-pub mod generator;
-pub mod intent;
-pub mod stage;
+mod container;
+mod error;
+
+pub use container::{Container, ContainerStatus};
+pub use error::KuboError;

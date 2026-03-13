@@ -1,22 +1,31 @@
 # kubo
 
-Isolated dev environments in Docker. Point it at a directory, get a fully loaded container.
+Run Claude Code with full autonomy in an isolated container. No risk to your host system.
 
 ```
-kubo katulong    # mount ./katulong into a container, drop into zsh
-kubo .           # mount current dir
+kubo myproject
+yolo    # claude --dangerously-skip-permissions, inside the container
 ```
 
-The idea: run Claude Code (or anything) dangerously but safely — everything is isolated in a container while your project files stay mounted at `/work`.
+kubo mounts a directory into a Docker container with a complete dev stack. Claude can install packages, modify system files, run arbitrary commands — all sandboxed. Your project files stay synced at `/work`, everything else is disposable.
+
+## Why
+
+Claude Code is most useful when you let it run without guardrails — `--dangerously-skip-permissions` lets it edit files, run commands, and install tools without asking. But doing that on your host machine is risky. kubo gives Claude a full Ubuntu environment to go wild in, while keeping your host safe.
+
+```bash
+kubo .       # mount current dir into a container, drop into zsh
+yolo         # let claude loose
+```
 
 ## What's inside
 
 The kubo image comes with:
 
+- **Claude Code** — plus `yolo` alias for `claude --dangerously-skip-permissions`
 - **Rust** (stable + clippy/rustfmt)
 - **Node 22** (via fnm)
 - **Go 1.24**
-- **Claude Code** — plus `yolo` alias for `claude --dangerously-skip-permissions`
 - **GitHub CLI** (gh)
 - **Oh My Zsh** with autosuggestions and syntax highlighting
 - **Terminal tools**: fzf, ripgrep, fd, bat, eza, jq, htop, tmux

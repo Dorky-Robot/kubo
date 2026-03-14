@@ -1,4 +1,4 @@
-FROM ubuntu:24.04
+FROM debian:bookworm-slim
 
 ARG TARGETARCH
 
@@ -7,38 +7,51 @@ ENV LANG=en_US.UTF-8
 ENV LC_ALL=en_US.UTF-8
 ENV TERM=xterm-256color
 
-# ── Core system packages ────────────────────────────────────────────
+# ── System packages (minimal) ─────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    # essentials
-    build-essential pkg-config cmake \
+    # build essentials
+    build-essential pkg-config \
     ca-certificates curl wget git openssh-client \
-    # terminal life
-    zsh tmux fzf ripgrep fd-find bat eza jq htop tree less \
-    # libs commonly needed by rust crates
+    # terminal
+    zsh tmux jq htop less \
+    # libs for rust crates
     libssl-dev libsqlite3-dev \
-    # networking
-    iproute2 dnsutils iputils-ping netcat-openbsd socat \
     # locale
     locales \
     # misc
-    unzip file sudo \
-    && locale-gen en_US.UTF-8 \
+    unzip file sudo procps \
+    && sed -i '/en_US.UTF-8/s/^# //' /etc/locale.gen && locale-gen \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# ── Symlinks for ubuntu-named tools ────────────────────────────────
-RUN ln -sf /usr/bin/batcat /usr/local/bin/bat \
-    && ln -sf /usr/bin/fdfind /usr/local/bin/fd
+# ── Modern CLI tools (static binaries, no apt bloat) ──────────────
+RUN ARCH=$([ "$TARGETARCH" = "arm64" ] && echo "aarch64" || echo "x86_64") \
+    # ripgrep
+    && curl -fsSL "https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/ripgrep-14.1.1-${ARCH}-unknown-linux-musl.tar.gz" \
+    | tar -xz -C /tmp && cp /tmp/ripgrep-*/rg /usr/local/bin/ && rm -rf /tmp/ripgrep-* \
+    # fd
+    && curl -fsSL "https://github.com/sharkdp/fd/releases/download/v10.2.0/fd-v10.2.0-${ARCH}-unknown-linux-musl.tar.gz" \
+    | tar -xz -C /tmp && cp /tmp/fd-*/fd /usr/local/bin/ && rm -rf /tmp/fd-* \
+    # bat
+    && curl -fsSL "https://github.com/sharkdp/bat/releases/download/v0.24.0/bat-v0.24.0-${ARCH}-unknown-linux-musl.tar.gz" \
+    | tar -xz -C /tmp && cp /tmp/bat-*/bat /usr/local/bin/ && rm -rf /tmp/bat-* \
+    # eza
+    && curl -fsSL "https://github.com/eza-community/eza/releases/download/v0.20.13/eza_${ARCH}-unknown-linux-musl.tar.gz" \
+    | tar -xz -C /tmp && cp /tmp/eza /usr/local/bin/ && rm -rf /tmp/eza \
+    # fzf
+    && FZF_ARCH=$([ "$TARGETARCH" = "arm64" ] && echo "arm64" || echo "amd64") \
+    && curl -fsSL "https://github.com/junegunn/fzf/releases/download/v0.57.0/fzf-0.57.0-linux_${FZF_ARCH}.tar.gz" \
+    | tar -xz -C /usr/local/bin/
 
-# ── Rust (via rustup) ──────────────────────────────────────────────
+# ── Rust (via rustup) ─────────────────────────────────────────────
 ENV RUSTUP_HOME=/usr/local/rustup
 ENV CARGO_HOME=/usr/local/cargo
 ENV PATH="/usr/local/cargo/bin:${PATH}"
 
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
-    sh -s -- -y --default-toolchain stable --profile default \
+    sh -s -- -y --default-toolchain stable --profile minimal \
     && rustup component add clippy rustfmt
 
-# ── Node.js (via fnm for speed) ───────────────────────────────────
+# ── Node.js (via fnm) ────────────────────────────────────────────
 ENV FNM_DIR=/usr/local/fnm
 ENV PATH="/usr/local/fnm/aliases/default/bin:${PATH}"
 
@@ -47,41 +60,43 @@ RUN curl -fsSL https://fnm.vercel.app/install | bash -s -- --install-dir /usr/lo
     && /usr/local/fnm/fnm default 22 \
     && /usr/local/fnm/fnm alias default 22
 
-# ── Go ─────────────────────────────────────────────────────────────
+# ── Go ────────────────────────────────────────────────────────────
 ENV PATH="/usr/local/go/bin:${PATH}"
 
 RUN GOARCH=$([ "$TARGETARCH" = "arm64" ] && echo "arm64" || echo "amd64") \
     && curl -fsSL "https://go.dev/dl/go1.24.1.linux-${GOARCH}.tar.gz" | tar -C /usr/local -xz
 
-# ── GitHub CLI ─────────────────────────────────────────────────────
-RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-    | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
-    | tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
-    && apt-get update && apt-get install -y gh \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+# ── GitHub CLI ────────────────────────────────────────────────────
+RUN GH_ARCH=$([ "$TARGETARCH" = "arm64" ] && echo "arm64" || echo "amd64") \
+    && curl -fsSL "https://github.com/cli/cli/releases/download/v2.67.0/gh_2.67.0_linux_${GH_ARCH}.tar.gz" \
+    | tar -xz -C /tmp && cp /tmp/gh_*/bin/gh /usr/local/bin/ && rm -rf /tmp/gh_*
 
-# ── Claude Code ────────────────────────────────────────────────────
-RUN npm install -g @anthropic-ai/claude-code
-
-# ── Dev user (non-root with sudo) ─────────────────────────────────
+# ── Dev user (non-root with sudo) ────────────────────────────────
 RUN useradd -m -s /usr/bin/zsh -G sudo dev \
     && echo 'dev ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers.d/dev
 
 USER dev
 WORKDIR /home/dev
 
-# ── Oh My Zsh ─────────────────────────────────────────────────────
-RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended \
-    && git clone https://github.com/zsh-users/zsh-autosuggestions ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-autosuggestions \
-    && git clone https://github.com/zsh-users/zsh-syntax-highlighting ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting
+# ── Claude Code (install as dev user) ────────────────────────────
+RUN curl -fsSL https://claude.ai/install.sh | bash
+ENV PATH="/home/dev/.local/bin:${PATH}"
 
-# ── Zsh config ─────────────────────────────────────────────────────
+# ── Oh My Zsh ────────────────────────────────────────────────────
+RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended \
+    && git clone --depth 1 https://github.com/zsh-users/zsh-autosuggestions ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-autosuggestions \
+    && git clone --depth 1 https://github.com/zsh-users/zsh-syntax-highlighting ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting
+
+# ── Zsh config ───────────────────────────────────────────────────
 COPY --chown=dev:dev zshrc /home/dev/.zshrc
 
-# ── Entrypoint (configures git from env vars) ─────────────────────
-COPY entrypoint.sh /usr/local/bin/kubo-entrypoint
+# ── Clipboard bridge (for katulong image paste) ──────────────────
+COPY pbpaste pbcopy clip /usr/local/bin/
 USER root
+RUN chmod +x /usr/local/bin/pbpaste /usr/local/bin/pbcopy /usr/local/bin/clip
+
+# ── Entrypoint (configures git from env vars) ────────────────────
+COPY entrypoint.sh /usr/local/bin/kubo-entrypoint
 RUN chmod +x /usr/local/bin/kubo-entrypoint
 USER dev
 

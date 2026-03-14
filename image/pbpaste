@@ -1,0 +1,47 @@
+#!/bin/bash
+# kubo clipboard bridge
+# Bridges katulong's image uploads into the container as a clipboard.
+#
+# When katulong uploads an image (drag-drop or paste from a remote device),
+# it lands in ~/.katulong/uploads/ (mounted from the host). This shim
+# makes that image available to tools that read the clipboard.
+#
+# Usage:
+#   pbpaste              — output latest clipboard text (or image path)
+#   pbpaste --image      — output the path to the latest uploaded image
+#   pbpaste --image-raw  — output the raw image bytes
+
+UPLOADS_DIR="$HOME/.katulong/uploads"
+CLIPBOARD_FILE="$UPLOADS_DIR/.clipboard-text"
+
+latest_image() {
+    if [ -d "$UPLOADS_DIR" ]; then
+        ls -t "$UPLOADS_DIR"/*.{png,jpg,jpeg,gif,webp} 2>/dev/null | head -1
+    fi
+}
+
+case "${1:-}" in
+    --image)
+        img=$(latest_image)
+        if [ -n "$img" ]; then
+            echo "$img"
+        fi
+        ;;
+    --image-raw)
+        img=$(latest_image)
+        if [ -n "$img" ]; then
+            cat "$img"
+        fi
+        ;;
+    *)
+        # Default: return text clipboard, or if empty, the latest image path
+        if [ -f "$CLIPBOARD_FILE" ]; then
+            cat "$CLIPBOARD_FILE"
+        else
+            img=$(latest_image)
+            if [ -n "$img" ]; then
+                echo "$img"
+            fi
+        fi
+        ;;
+esac

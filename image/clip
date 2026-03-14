@@ -1,0 +1,28 @@
+#!/bin/bash
+# Show the latest image uploaded via katulong
+# Usage: clip         — print the path to the latest image
+#        clip ls      — list all uploaded images
+
+UPLOADS_DIR="$HOME/.katulong/uploads"
+
+case "${1:-}" in
+    ls)
+        if [ -d "$UPLOADS_DIR" ]; then
+            ls -lt "$UPLOADS_DIR"/*.{png,jpg,jpeg,gif,webp} 2>/dev/null
+        else
+            echo "No uploads directory"
+        fi
+        ;;
+    *)
+        if [ -d "$UPLOADS_DIR" ]; then
+            latest=$(ls -t "$UPLOADS_DIR"/*.{png,jpg,jpeg,gif,webp} 2>/dev/null | head -1)
+            if [ -n "$latest" ]; then
+                echo "$latest"
+            else
+                echo "No images uploaded yet"
+            fi
+        else
+            echo "No uploads directory (is katulong running?)"
+        fi
+        ;;
+esac

@@ -4,47 +4,106 @@ Run Claude Code with full autonomy in an isolated container. No risk to your hos
 
 ```
 kubo myproject
-yolo    # claude --dangerously-skip-permissions, inside the container
+yolo    # claude --dangerously-skip-permissions, safe inside the container
 ```
 
-kubo mounts a directory into a Docker container with a complete dev stack. Claude can install packages, modify system files, run arbitrary commands — all sandboxed. Your project files stay synced at `/work`, everything else is disposable.
+kubo mounts your project into a Docker container with a complete dev stack. Claude can install packages, modify system files, run arbitrary commands — all sandboxed. Your project files stay synced at `/work/<project>/`, everything else is disposable.
 
 ## Why
 
-Claude Code is most useful when you let it run without guardrails — `--dangerously-skip-permissions` lets it edit files, run commands, and install tools without asking. But doing that on your host machine is risky. kubo gives Claude a full Ubuntu environment to go wild in, while keeping your host safe.
+Claude Code is most useful when you let it run without guardrails — `--dangerously-skip-permissions` lets it edit files, run commands, and install tools without asking. But doing that on your host machine is risky. kubo gives Claude a full dev environment to go wild in, while keeping your host safe.
+
+## Quick start
 
 ```bash
-kubo .       # mount current dir into a container, drop into zsh
-yolo         # let claude loose
+# Install
+cargo install --path crates/kubo-cli
+
+# Open a project in an isolated container
+kubo myproject
+
+# Inside the container — let claude loose
+yolo
+
+# Resume a previous claude session
+yolo --resume
 ```
+
+## Multi-project workspaces
+
+Mount multiple projects into a single kubo:
+
+```bash
+# Create a named kubo with several projects
+kubo new fullstack ./frontend ./backend ./shared
+
+# Add more projects later
+kubo add fullstack ./docs ./infra
+
+# Attach to it
+kubo fullstack
+```
+
+Inside the container:
+
+```
+work > ls
+backend/  docs/  frontend/  infra/  shared/
+
+work > cd frontend
+frontend main > yolo
+```
+
+## Port forwarding
+
+Containers use host networking — any port your app binds to is accessible on the host immediately. If you use [tunnels](https://github.com/Dorky-Robot/tunnels) to expose local ports via Cloudflare:
+
+```bash
+# Inside kubo
+work > cd frontend
+frontend main > npm run dev    # starts on port 3000
+
+# On the host (separate terminal) — works because of host networking
+tunnels route add app.dorkyrobot.com 3000 --tunnel prod
+```
+
+## Auto-updates
+
+The Docker image is embedded in the kubo binary. When you upgrade kubo:
+
+1. Image files change → new image hash baked into the binary
+2. `kubo myproject` detects the mismatch → rebuilds image automatically
+3. Existing containers on the old image → recreated with the new image
+
+No manual `docker build` or `kubo rm` needed. Just upgrade and go.
 
 ## What's inside
 
 The kubo image comes with:
 
-- **Claude Code** — plus `yolo` alias for `claude --dangerously-skip-permissions`
+- **Claude Code** — plus `yolo` (passes all flags: `yolo --resume`, `yolo -p "fix the tests"`)
 - **Rust** (stable + clippy/rustfmt)
 - **Node 22** (via fnm)
 - **Go 1.24**
 - **GitHub CLI** (gh)
-- **Oh My Zsh** with autosuggestions and syntax highlighting
 - **Terminal tools**: fzf, ripgrep, fd, bat, eza, jq, htop, tmux
+- **Zsh** with autosuggestions and syntax highlighting
 
 Your host `~/.ssh`, `~/.config/gh`, and git identity are passed through (read-only).
 
-## Usage
+## Commands
 
-```bash
-kubo <dir>          # open dir in an isolated container
-kubo ls             # list kubo containers
-kubo stop <name>    # stop a container
-kubo rm <name>      # remove a container
-kubo build          # build or rebuild the kubo image
 ```
-
-First run builds the Docker image (takes a few minutes). After that, containers start instantly.
-
-Containers persist — `exit` the shell and `kubo <dir>` again to reattach. The container keeps its state (installed packages, etc.) until you `kubo rm` it.
+kubo <dir>                    open dir in a container
+kubo <name>                   attach to a named kubo
+kubo new <name> <dirs...>     create a named kubo with multiple dirs
+kubo add <name> <dirs...>     add dirs to an existing kubo
+kubo ls                       list containers
+kubo stop <name>              stop a container
+kubo rm <name>                remove a container
+kubo build                    force rebuild the image
+kubo version                  show version and image hash
+```
 
 ## Install
 

@@ -1,31 +1,40 @@
 # ── kubo shell ──────────────────────────────────────────────────────
 
-export ZSH="$HOME/.oh-my-zsh"
+# ── prompt ──────────────────────────────────────────────────────────
+autoload -Uz vcs_info
+precmd() { vcs_info }
+zstyle ':vcs_info:git:*' formats ' %b'
+setopt PROMPT_SUBST
+PROMPT='%F{cyan}%1~%f%F{magenta}${vcs_info_msg_0_}%f > '
 
-ZSH_THEME="agnoster"
-
-plugins=(
-    git
-    docker
-    rust
-    node
-    golang
-    zsh-autosuggestions
-    zsh-syntax-highlighting
-)
-
-source $ZSH/oh-my-zsh.sh
+# ── completion ──────────────────────────────────────────────────────
+autoload -Uz compinit && compinit
+zstyle ':completion:*' matcher-list 'm:{a-z}={A-Z}'
+zstyle ':completion:*' menu select
 
 # ── history ─────────────────────────────────────────────────────────
 HISTSIZE=50000
 SAVEHIST=50000
+HISTFILE=~/.zsh_history
+setopt HIST_IGNORE_ALL_DUPS
+setopt SHARE_HISTORY
+setopt INC_APPEND_HISTORY
+
+# ── navigation ──────────────────────────────────────────────────────
+setopt AUTO_CD
+setopt AUTO_PUSHD
+setopt PUSHD_SILENT
 
 # ── aliases ─────────────────────────────────────────────────────────
 alias ls='eza --group-directories-first'
 alias ll='eza -la --group-directories-first'
 alias lt='eza -la --tree --level=2'
 alias cat='bat --paging=never'
-alias yolo='claude --dangerously-skip-permissions'
+alias g='git'
+alias gs='git status'
+alias gd='git diff'
+alias gl='git log --oneline -20'
+yolo() { claude --dangerously-skip-permissions "$@"; }
 alias ..='cd ..'
 alias ...='cd ../..'
 
@@ -34,6 +43,10 @@ export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow --exclude .git'
 export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
 [ -f /usr/share/doc/fzf/examples/key-bindings.zsh ] && source /usr/share/doc/fzf/examples/key-bindings.zsh
 [ -f /usr/share/zsh/vendor-completions/_fzf ] && source /usr/share/zsh/vendor-completions/_fzf
+
+# ── syntax highlighting ─────────────────────────────────────────────
+[ -f ~/.oh-my-zsh/custom/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh ] && source ~/.oh-my-zsh/custom/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh
+[ -f ~/.oh-my-zsh/custom/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh ] && source ~/.oh-my-zsh/custom/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
 
 # ── paths ───────────────────────────────────────────────────────────
 export PATH="/usr/local/cargo/bin:/usr/local/go/bin:/usr/local/fnm/aliases/default/bin:$HOME/.local/bin:$PATH"

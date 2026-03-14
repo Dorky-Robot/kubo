@@ -287,34 +287,54 @@ impl Container {
     }
 
     /// Create and start the container, or start it if it already exists but is stopped.
-    /// If the container exists but uses an outdated image, it is recreated.
     /// Returns Ok(true) if a new container was created, Ok(false) if an existing one was started.
+    /// Does NOT auto-recreate outdated containers — use `kubo update` for that.
     pub fn ensure_running(&self) -> Result<bool, KuboError> {
         if self.exists()? {
             if self.is_outdated()? {
-                eprintln!("Image updated, recreating container {}...", self.name);
-                self.force_remove()?;
-            } else if self.is_running()? {
-                return Ok(false);
-            } else {
-                let status = Command::new("docker")
-                    .args(["start", &self.name])
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .status()?;
-
-                if !status.success() {
-                    return Err(KuboError::Container(format!(
-                        "failed to start existing container {}",
-                        self.name
-                    )));
-                }
+                eprintln!(
+                    "Note: {} is using an older image. Run `kubo update {}` to upgrade.",
+                    self.name,
+                    self.name.strip_prefix("kubo-").unwrap_or(&self.name)
+                );
+            }
+            if self.is_running()? {
                 return Ok(false);
             }
+            let status = Command::new("docker")
+                .args(["start", &self.name])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()?;
+
+            if !status.success() {
+                return Err(KuboError::Container(format!(
+                    "failed to start existing container {}",
+                    self.name
+                )));
+            }
+            return Ok(false);
         }
 
         self.create()?;
         Ok(true)
+    }
+
+    /// Update the container to the latest image. Recreates it.
+    pub fn update(&self) -> Result<(), KuboError> {
+        if !self.exists()? {
+            return Err(KuboError::Container(format!(
+                "container {} not found",
+                self.name
+            )));
+        }
+        if !self.is_outdated()? {
+            eprintln!("{} is already up to date.", self.name);
+            return Ok(());
+        }
+        eprintln!("Updating {} to latest image...", self.name);
+        self.recreate()?;
+        Ok(())
     }
 
     /// Create the container (must not already exist).
@@ -333,8 +353,15 @@ impl Container {
         ];
 
         // Host networking — container shares the host network stack.
-        // Any port a dev app binds to is immediately accessible on the host.
         args.extend(["--network".to_string(), "host".to_string()]);
+
+        // Generous memory defaults for dev work (Claude Code needs headroom)
+        args.extend([
+            "--memory".to_string(),
+            "6g".to_string(),
+            "--memory-swap".to_string(),
+            "12g".to_string(),
+        ]);
 
         // Working directory
         args.extend(["-w".to_string(), "/work".to_string()]);
@@ -347,17 +374,37 @@ impl Container {
             ]);
         }
 
-        // Mount host credentials (read-only)
+        // Mount host credentials
         if let Some(home) = std::env::var_os("HOME") {
             let home = PathBuf::from(&home);
 
-            let cred_mounts: &[(&str, &str)] = &[
-                (".config/gh", "/home/dev/.config/gh"),
+            // Read-write mounts (credentials that tools may update)
+            let rw_mounts: &[(&str, &str)] = &[(".config/gh", "/home/dev/.config/gh")];
+
+            for (src, dest) in rw_mounts {
+                let host_path = home.join(src);
+                if host_path.exists() {
+                    args.extend(["-v".to_string(), format!("{}:{dest}", host_path.display())]);
+                }
+            }
+
+            // Read-only mounts
+            let ro_mounts: &[(&str, &str)] = &[
                 (".ssh", "/home/dev/.ssh"),
-                (".katulong/uploads", "/home/dev/.katulong/uploads"),
             ];
 
-            for (src, dest) in cred_mounts {
+            // Read-write mounts — katulong uploads need to be writable so
+            // katulong running inside the container can save uploaded images
+            // from the clipboard bridge (and pbpaste can read them back).
+            let katulong_uploads = home.join(".katulong/uploads");
+            if katulong_uploads.exists() {
+                args.extend([
+                    "-v".to_string(),
+                    format!("{}:/home/dev/.katulong/uploads", katulong_uploads.display()),
+                ]);
+            }
+
+            for (src, dest) in ro_mounts {
                 let host_path = home.join(src);
                 if host_path.exists() {
                     args.extend([

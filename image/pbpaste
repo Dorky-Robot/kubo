@@ -2,9 +2,9 @@
 # kubo clipboard bridge
 # Bridges katulong's image uploads into the container as a clipboard.
 #
-# When katulong uploads an image (drag-drop or paste from a remote device),
-# it lands in ~/.katulong/uploads/ (mounted from the host). This shim
-# makes that image available to tools that read the clipboard.
+# Checks two locations:
+#   1. ~/.katulong/uploads/ — host-mounted uploads (when katulong runs on host)
+#   2. $KATULONG_DATA_DIR/uploads/ — local uploads (when katulong runs in-container)
 #
 # Usage:
 #   pbpaste              — output latest clipboard text (or image path)
@@ -12,12 +12,17 @@
 #   pbpaste --image-raw  — output the raw image bytes
 
 UPLOADS_DIR="$HOME/.katulong/uploads"
-CLIPBOARD_FILE="$UPLOADS_DIR/.clipboard-text"
+LOCAL_UPLOADS="${KATULONG_DATA_DIR:-}/uploads"
+CLIPBOARD_DIR="$HOME/.katulong/clipboard"
+CLIPBOARD_FILE="$CLIPBOARD_DIR/.clipboard-text"
 
 latest_image() {
-    if [ -d "$UPLOADS_DIR" ]; then
-        ls -t "$UPLOADS_DIR"/*.{png,jpg,jpeg,gif,webp} 2>/dev/null | head -1
-    fi
+    local -a dirs=()
+    [ -d "$UPLOADS_DIR" ] && dirs+=("$UPLOADS_DIR")
+    [ -n "$LOCAL_UPLOADS" ] && [ -d "$LOCAL_UPLOADS" ] && [ "$LOCAL_UPLOADS" != "$UPLOADS_DIR" ] && dirs+=("$LOCAL_UPLOADS")
+    [ ${#dirs[@]} -eq 0 ] && return
+
+    find "${dirs[@]}" -maxdepth 1 -type f \( -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.gif' -o -name '*.webp' \) -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-
 }
 
 case "${1:-}" in

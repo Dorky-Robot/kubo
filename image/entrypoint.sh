@@ -56,4 +56,12 @@ fi
 git config --global push.autoSetupRemote true
 git config --global core.editor "vi"
 
+# ── Virtual X display for clipboard (xclip) ──────────────────────
+# Katulong uses xclip to bridge images from remote devices to the
+# container clipboard. Claude Code reads images via xclip.
+if command -v Xvfb &>/dev/null && [ -z "$DISPLAY" ]; then
+    Xvfb :99 -screen 0 1x1x8 -nolisten tcp &>/dev/null &
+    export DISPLAY=:99
+fi
+
 exec "$@"

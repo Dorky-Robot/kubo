@@ -18,6 +18,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl-dev libsqlite3-dev \
     # locale
     locales \
+    # clipboard (for katulong image paste → Claude Code)
+    xclip xvfb \
     # misc
     unzip file sudo procps \
     && sed -i '/en_US.UTF-8/s/^# //' /etc/locale.gen && locale-gen \
@@ -50,6 +52,9 @@ ENV PATH="/usr/local/cargo/bin:${PATH}"
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
     sh -s -- -y --default-toolchain stable --profile minimal \
     && rustup component add clippy rustfmt
+
+# ── sipag (PR automation CLI) ──────────────────────────────────────
+RUN curl -fsSL https://raw.githubusercontent.com/Dorky-Robot/sipag/main/scripts/install.sh | sh
 
 # ── Node.js (via fnm) ────────────────────────────────────────────
 ENV FNM_DIR=/usr/local/fnm

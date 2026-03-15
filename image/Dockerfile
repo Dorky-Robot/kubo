@@ -100,6 +100,13 @@ COPY entrypoint.sh /usr/local/bin/kubo-entrypoint
 RUN chmod +x /usr/local/bin/kubo-entrypoint
 USER dev
 
+# ── Snapshot home directory defaults for volume initialization ────
+# When /home/dev is a named volume, the entrypoint copies these defaults
+# on first run and refreshes system files on upgrade.
+USER root
+RUN cp -a /home/dev /etc/skel.kubo
+USER dev
+
 WORKDIR /work
 ENTRYPOINT ["kubo-entrypoint"]
 CMD ["sleep", "infinity"]

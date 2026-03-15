@@ -1,8 +1,9 @@
 #!/bin/bash
 # kubo clipboard bridge — stores clipboard content
-# Writes stdin to a clipboard file so pbpaste can read it back
+# Writes stdin to a clipboard file so pbpaste can read it back.
+# Uses a container-local path (not the read-only host mount).
 
-CLIPBOARD_DIR="$HOME/.katulong/uploads"
+CLIPBOARD_DIR="$HOME/.katulong/clipboard"
 mkdir -p "$CLIPBOARD_DIR"
 
 # Save stdin as the latest clipboard content

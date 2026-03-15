@@ -40,6 +40,36 @@ enum Command {
     Rm {
         /// Container name (e.g. kubo-myproject)
         name: String,
+        /// Also remove persistent volumes (home dir, work dir data)
+        #[arg(long)]
+        volumes: bool,
+    },
+    /// Update a kubo container to the latest image
+    Update {
+        /// Container name
+        name: String,
+        /// Force update even if there are active sessions
+        #[arg(long)]
+        force: bool,
+    },
+    /// Export a kubo to a portable .kubo file
+    Export {
+        /// Container name
+        name: String,
+        /// Output file path (defaults to <name>.kubo)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Import a kubo from a .kubo file
+    Import {
+        /// Path to the .kubo archive
+        file: PathBuf,
+        /// Override the container name
+        #[arg(short, long)]
+        name: Option<String>,
+        /// Directories to mount (replaces original mount paths)
+        #[arg(short, long)]
+        dir: Vec<PathBuf>,
     },
     /// Force rebuild the kubo Docker image
     Build,
@@ -55,7 +85,10 @@ fn main() {
         Some(Command::Add { name, dirs }) => cmd_add(&name, &dirs),
         Some(Command::Ls) => cmd_ls(),
         Some(Command::Stop { name }) => cmd_stop(&name),
-        Some(Command::Rm { name }) => cmd_rm(&name),
+        Some(Command::Rm { name, volumes }) => cmd_rm(&name, volumes),
+        Some(Command::Update { name, force }) => cmd_update(&name, force),
+        Some(Command::Export { name, output }) => cmd_export(&name, output.as_deref()),
+        Some(Command::Import { file, name, dir }) => cmd_import(&file, name.as_deref(), &dir),
         Some(Command::Build) => cmd_build(),
         Some(Command::Version) => cmd_version(),
         None => match cli.target {
@@ -67,6 +100,8 @@ fn main() {
                 eprintln!("       kubo add <name> <dirs...>     add dirs to existing kubo");
                 eprintln!("       kubo ls                       list containers");
                 eprintln!("       kubo stop/rm <name>           manage containers");
+                eprintln!("       kubo export <name>            export kubo to portable file");
+                eprintln!("       kubo import <file>            import kubo from file");
                 eprintln!("\nTry: kubo .");
                 std::process::exit(1);
             }
@@ -182,12 +217,86 @@ fn cmd_stop(name: &str) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn cmd_rm(name: &str) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_rm(name: &str, volumes: bool) -> Result<(), Box<dyn std::error::Error>> {
     Container::check_docker()?;
 
     let container = Container::load(name)?;
-    container.remove()?;
+    container.remove(volumes)?;
     println!("Removed {}", container.name);
+    if volumes {
+        println!("Removed persistent volumes");
+    }
+    Ok(())
+}
+
+fn cmd_update(name: &str, force: bool) -> Result<(), Box<dyn std::error::Error>> {
+    Container::check_docker()?;
+    kubo_core::image::ensure_image()?;
+
+    let container = Container::load(name)?;
+    container.update(force)?;
+    eprintln!("Done. Run `kubo {}` to attach.", name);
+    Ok(())
+}
+
+fn cmd_export(
+    name: &str,
+    output: Option<&std::path::Path>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    Container::check_docker()?;
+
+    let container = Container::load(name)?;
+    let default_output = PathBuf::from(format!(
+        "{}.kubo",
+        container
+            .name
+            .strip_prefix("kubo-")
+            .unwrap_or(&container.name)
+    ));
+    let output_path = output.unwrap_or(&default_output);
+
+    eprintln!(
+        "Exporting {} → {} ...",
+        container.name,
+        output_path.display()
+    );
+    container.export(output_path)?;
+
+    let size = std::fs::metadata(output_path).map(|m| m.len()).unwrap_or(0);
+    let size_mb = size as f64 / 1_048_576.0;
+    eprintln!(
+        "Exported ({:.1} MB). Copy this file anywhere and `kubo import` it.",
+        size_mb
+    );
+
+    Ok(())
+}
+
+fn cmd_import(
+    file: &std::path::Path,
+    name: Option<&str>,
+    dirs: &[PathBuf],
+) -> Result<(), Box<dyn std::error::Error>> {
+    Container::check_docker()?;
+
+    eprintln!("Importing from {} ...", file.display());
+    let container = Container::import(file, name, dirs)?;
+    eprintln!("Created container: {}", container.name);
+
+    if dirs.is_empty() {
+        eprintln!(
+            "Note: using original mount paths from export. If those paths don't exist on this \
+             machine, re-import with --dir to specify local directories."
+        );
+    }
+
+    eprintln!(
+        "Run `kubo {}` to attach.",
+        container
+            .name
+            .strip_prefix("kubo-")
+            .unwrap_or(&container.name)
+    );
     Ok(())
 }
 

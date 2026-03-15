@@ -6,6 +6,17 @@ use crate::KuboError;
 const IMAGE: &str = "kubo:latest";
 const LABEL: &str = "managed-by=kubo";
 
+/// Manifest stored inside a .kubo export archive.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct ExportManifest {
+    /// Original container name (e.g. "kubo-myproject").
+    name: String,
+    /// Mount configuration from the original container.
+    mounts: Vec<MountSerde>,
+    /// kubo image version that created this export.
+    image_version: String,
+}
+
 /// Read a value from the host's git config.
 fn git_config_get(key: &str) -> Option<String> {
     let output = Command::new("git")
@@ -320,8 +331,27 @@ impl Container {
         Ok(true)
     }
 
+    /// Count the number of exec sessions (interactive shells) attached to this container.
+    fn exec_session_count(&self) -> Result<usize, KuboError> {
+        let output = Command::new("docker")
+            .args(["inspect", "-f", "{{len .ExecIDs}}", &self.name])
+            .output()?;
+
+        if !output.status.success() {
+            return Ok(0);
+        }
+
+        let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        // Docker returns "<no value>" when ExecIDs is nil (no sessions)
+        if text == "<no value>" {
+            return Ok(0);
+        }
+        Ok(text.parse::<usize>().unwrap_or(0))
+    }
+
     /// Update the container to the latest image. Recreates it.
-    pub fn update(&self) -> Result<(), KuboError> {
+    /// Refuses to update if there are active exec sessions (other shells attached).
+    pub fn update(&self, force: bool) -> Result<(), KuboError> {
         if !self.exists()? {
             return Err(KuboError::Container(format!(
                 "container {} not found",
@@ -332,8 +362,50 @@ impl Container {
             eprintln!("{} is already up to date.", self.name);
             return Ok(());
         }
+
+        let sessions = self.exec_session_count()?;
+        if sessions > 0 && !force {
+            return Err(KuboError::Container(format!(
+                "{} has {} active session{}. Stop them first or use --force.",
+                self.name,
+                sessions,
+                if sessions == 1 { "" } else { "s" }
+            )));
+        }
+
+        if sessions > 0 {
+            eprintln!(
+                "Warning: {} has {} active session{}, forcing update...",
+                self.name,
+                sessions,
+                if sessions == 1 { "" } else { "s" }
+            );
+        }
+
         eprintln!("Updating {} to latest image...", self.name);
         self.recreate()?;
+        Ok(())
+    }
+
+    /// Docker volume name for this container's persistent home directory.
+    fn home_volume(&self) -> String {
+        format!("{}-home", self.name)
+    }
+
+    /// Docker volume name for this container's persistent work directory.
+    fn work_volume(&self) -> String {
+        format!("{}-work", self.name)
+    }
+
+    /// Remove named Docker volumes associated with this container.
+    pub fn remove_volumes(&self) -> Result<(), KuboError> {
+        for vol in [self.home_volume(), self.work_volume()] {
+            let _ = Command::new("docker")
+                .args(["volume", "rm", "-f", &vol])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+        }
         Ok(())
     }
 
@@ -366,7 +438,17 @@ impl Container {
         // Working directory
         args.extend(["-w".to_string(), "/work".to_string()]);
 
-        // Mount project directories
+        // Persistent named volumes — survive container recreate/update.
+        // Home volume: preserves ~/.claude, ~/.local, shell history, configs.
+        // Work volume: preserves cloned repos and files created outside mounted dirs.
+        args.extend([
+            "-v".to_string(),
+            format!("{}:/home/dev", self.home_volume()),
+            "-v".to_string(),
+            format!("{}:/work", self.work_volume()),
+        ]);
+
+        // Mount project directories (bind mounts overlay the work volume)
         for mount in &self.mounts {
             args.extend([
                 "-v".to_string(),
@@ -389,9 +471,7 @@ impl Container {
             }
 
             // Read-only mounts
-            let ro_mounts: &[(&str, &str)] = &[
-                (".ssh", "/home/dev/.ssh"),
-            ];
+            let ro_mounts: &[(&str, &str)] = &[(".ssh", "/home/dev/.ssh")];
 
             // Read-write mounts — katulong uploads need to be writable so
             // katulong running inside the container can save uploaded images
@@ -495,8 +575,8 @@ impl Container {
         Ok(())
     }
 
-    /// Remove the container.
-    pub fn remove(&self) -> Result<(), KuboError> {
+    /// Remove the container. If `volumes` is true, also remove persistent volumes.
+    pub fn remove(&self, volumes: bool) -> Result<(), KuboError> {
         let status = Command::new("docker")
             .args(["rm", "-f", &self.name])
             .stdout(Stdio::null())
@@ -509,6 +589,11 @@ impl Container {
                 self.name
             )));
         }
+
+        if volumes {
+            self.remove_volumes()?;
+        }
+
         Ok(())
     }
 
@@ -525,6 +610,272 @@ impl Container {
             .stderr(Stdio::null())
             .status()?;
         Ok(output.success())
+    }
+
+    /// Export this container to a portable .kubo archive.
+    ///
+    /// The archive contains:
+    /// - `manifest.json` — name, mounts, image version
+    /// - `filesystem.tar` — full container filesystem via `docker export`
+    pub fn export(&self, output: &Path) -> Result<(), KuboError> {
+        if !self.exists()? {
+            return Err(KuboError::Container(format!(
+                "container {} not found",
+                self.name
+            )));
+        }
+
+        let tmp = tempfile::tempdir()?;
+
+        // Write manifest
+        let manifest = ExportManifest {
+            name: self.name.clone(),
+            mounts: self
+                .mounts
+                .iter()
+                .map(|m| MountSerde {
+                    host: m.host_path.display().to_string(),
+                    container: m.container_path.clone(),
+                })
+                .collect(),
+            image_version: crate::image::version().to_string(),
+        };
+        let manifest_json = serde_json::to_string_pretty(&manifest)
+            .map_err(|e| KuboError::Container(format!("failed to serialize manifest: {e}")))?;
+        std::fs::write(tmp.path().join("manifest.json"), &manifest_json)?;
+
+        // Export container filesystem
+        let fs_tar = tmp.path().join("filesystem.tar");
+        let fs_file = std::fs::File::create(&fs_tar)?;
+        let status = Command::new("docker")
+            .args(["export", &self.name])
+            .stdout(Stdio::from(fs_file))
+            .stderr(Stdio::piped())
+            .status()?;
+
+        if !status.success() {
+            return Err(KuboError::Container(format!(
+                "failed to export container {}",
+                self.name
+            )));
+        }
+
+        // Bundle manifest + filesystem into the .kubo archive
+        let output_file = std::fs::File::create(output)?;
+        let mut archive = tar::Builder::new(output_file);
+        archive.append_path_with_name(tmp.path().join("manifest.json"), "manifest.json")?;
+        archive.append_path_with_name(&fs_tar, "filesystem.tar")?;
+        archive.finish()?;
+
+        Ok(())
+    }
+
+    /// Import a container from a .kubo archive.
+    ///
+    /// - `archive_path` — path to the .kubo file
+    /// - `name` — optional name override (defaults to original name from manifest)
+    /// - `dirs` — host directories to mount (remaps the original mount paths)
+    pub fn import(
+        archive_path: &Path,
+        name: Option<&str>,
+        dirs: &[PathBuf],
+    ) -> Result<Self, KuboError> {
+        let tmp = tempfile::tempdir()?;
+
+        // Extract the .kubo archive
+        let archive_file = std::fs::File::open(archive_path)
+            .map_err(|e| KuboError::InvalidPath(format!("{}: {e}", archive_path.display())))?;
+        let mut archive = tar::Archive::new(archive_file);
+        archive
+            .unpack(tmp.path())
+            .map_err(|e| KuboError::Container(format!("failed to extract archive: {e}")))?;
+
+        // Read manifest
+        let manifest_path = tmp.path().join("manifest.json");
+        let manifest_str = std::fs::read_to_string(&manifest_path)
+            .map_err(|_| KuboError::Container("archive missing manifest.json".into()))?;
+        let manifest: ExportManifest = serde_json::from_str(&manifest_str)
+            .map_err(|e| KuboError::Container(format!("invalid manifest: {e}")))?;
+
+        // Determine container name
+        let container_name = match name {
+            Some(n) => {
+                if n.starts_with("kubo-") {
+                    n.to_string()
+                } else {
+                    format!("kubo-{n}")
+                }
+            }
+            None => manifest.name.clone(),
+        };
+
+        // Check name isn't taken
+        if Self::name_exists(&container_name)? {
+            return Err(KuboError::Container(format!(
+                "container {container_name} already exists — use a different name or remove it first"
+            )));
+        }
+
+        // Import the filesystem tar as a Docker image
+        let imported_image = format!("kubo-imported:{}", container_name);
+        let fs_tar = tmp.path().join("filesystem.tar");
+        let fs_file = std::fs::File::open(&fs_tar)
+            .map_err(|_| KuboError::Container("archive missing filesystem.tar".into()))?;
+        let output = Command::new("docker")
+            .args(["import", "-", &imported_image])
+            .stdin(Stdio::from(fs_file))
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(KuboError::Container(format!(
+                "docker import failed: {stderr}"
+            )));
+        }
+
+        // Build mount list: use provided dirs, or fall back to manifest container paths
+        let mounts: Vec<Mount> = if dirs.is_empty() {
+            // No dirs provided — keep container paths from manifest but warn
+            manifest
+                .mounts
+                .iter()
+                .map(|m| Mount {
+                    host_path: PathBuf::from(&m.host),
+                    container_path: m.container.clone(),
+                })
+                .collect()
+        } else {
+            // Map provided dirs to container paths from manifest, or generate new ones
+            let mut mounts = Vec::new();
+            for (i, dir) in dirs.iter().enumerate() {
+                let canonical = dir
+                    .canonicalize()
+                    .map_err(|e| KuboError::InvalidPath(format!("{}: {e}", dir.display())))?;
+                if !canonical.is_dir() {
+                    return Err(KuboError::InvalidPath(format!(
+                        "{} is not a directory",
+                        canonical.display()
+                    )));
+                }
+                let container_path = if i < manifest.mounts.len() {
+                    manifest.mounts[i].container.clone()
+                } else {
+                    let dir_name = canonical
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("project");
+                    format!("/work/{dir_name}")
+                };
+                mounts.push(Mount {
+                    host_path: canonical,
+                    container_path,
+                });
+            }
+            mounts
+        };
+
+        // Create the container from the imported image
+        let mounts_label: Vec<MountSerde> = mounts
+            .iter()
+            .map(|m| MountSerde {
+                host: m.host_path.display().to_string(),
+                container: m.container_path.clone(),
+            })
+            .collect();
+        let mounts_json = serde_json::to_string(&mounts_label).unwrap_or_default();
+
+        let mut args = vec![
+            "run".to_string(),
+            "-d".to_string(),
+            "--name".to_string(),
+            container_name.clone(),
+            "--label".to_string(),
+            LABEL.to_string(),
+            "--label".to_string(),
+            format!("kubo.mounts={mounts_json}"),
+            "--label".to_string(),
+            format!("kubo.imported-from={}", archive_path.display()),
+            "-u".to_string(),
+            "dev".to_string(),
+            "--network".to_string(),
+            "host".to_string(),
+            "--memory".to_string(),
+            "6g".to_string(),
+            "--memory-swap".to_string(),
+            "12g".to_string(),
+            "-w".to_string(),
+            "/work".to_string(),
+            // The imported image has no CMD/ENTRYPOINT, so we need to set one
+            "--entrypoint".to_string(),
+            "/bin/sh".to_string(),
+        ];
+
+        // Mount directories
+        for mount in &mounts {
+            args.extend([
+                "-v".to_string(),
+                format!("{}:{}", mount.host_path.display(), mount.container_path),
+            ]);
+        }
+
+        // Mount host credentials (same as create)
+        if let Some(home) = std::env::var_os("HOME") {
+            let home = PathBuf::from(&home);
+
+            let rw_mounts: &[(&str, &str)] = &[(".config/gh", "/home/dev/.config/gh")];
+            for (src, dest) in rw_mounts {
+                let host_path = home.join(src);
+                if host_path.exists() {
+                    args.extend(["-v".to_string(), format!("{}:{dest}", host_path.display())]);
+                }
+            }
+
+            let ro_mounts: &[(&str, &str)] = &[(".ssh", "/home/dev/.ssh")];
+            for (src, dest) in ro_mounts {
+                let host_path = home.join(src);
+                if host_path.exists() {
+                    args.extend([
+                        "-v".to_string(),
+                        format!("{}:{dest}:ro", host_path.display()),
+                    ]);
+                }
+            }
+        }
+
+        // Git identity
+        for (key, env) in &[
+            ("user.name", "GIT_AUTHOR_NAME"),
+            ("user.email", "GIT_AUTHOR_EMAIL"),
+        ] {
+            if let Some(val) = git_config_get(key) {
+                args.extend(["-e".to_string(), format!("{env}={val}")]);
+                let committer_env = env.replace("AUTHOR", "COMMITTER");
+                args.extend(["-e".to_string(), format!("{committer_env}={val}")]);
+            }
+        }
+
+        args.push(imported_image.clone());
+        // Keep the container alive
+        args.extend(["-c".to_string(), "sleep infinity".to_string()]);
+
+        let status = Command::new("docker")
+            .args(&args)
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .status()?;
+
+        if !status.success() {
+            return Err(KuboError::Container(
+                "failed to create container from imported image".to_string(),
+            ));
+        }
+
+        Ok(Self {
+            name: container_name,
+            mounts,
+        })
     }
 
     /// List all kubo-managed containers.

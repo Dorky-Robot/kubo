@@ -1,7 +1,37 @@
 #!/bin/bash
-# kubo container entrypoint — configure git from env vars
+# kubo container entrypoint — initialize persistent home, configure git
 
-# Set git identity if provided via env
+SKEL=/etc/skel.kubo
+
+# ── Persistent home volume initialization ────────────────────────
+# When /home/dev is backed by a named volume, it starts empty on first
+# container creation. We populate it from the image snapshot. On upgrades
+# (new image, existing volume), we refresh system-managed files while
+# preserving user data like ~/.claude, cloned repos, shell history, etc.
+
+if [ ! -f /home/dev/.kubo-initialized ]; then
+    # First run — copy all defaults from the image skeleton
+    if [ -d "$SKEL" ]; then
+        cp -a "$SKEL"/. /home/dev/
+    fi
+    touch /home/dev/.kubo-initialized
+elif [ -d "$SKEL" ]; then
+    # Upgrade — refresh system-managed files only
+    # These are files kubo controls that should track the image version.
+    for f in .zshrc .oh-my-zsh; do
+        if [ -e "$SKEL/$f" ]; then
+            rm -rf "/home/dev/$f"
+            cp -a "$SKEL/$f" "/home/dev/$f"
+        fi
+    done
+    # Ensure new tools from the image are available
+    if [ -d "$SKEL/.local/bin" ]; then
+        mkdir -p /home/dev/.local/bin
+        cp -n "$SKEL/.local/bin"/* /home/dev/.local/bin/ 2>/dev/null || true
+    fi
+fi
+
+# ── Git configuration ────────────────────────────────────────────
 if [ -n "$GIT_AUTHOR_NAME" ]; then
     git config --global user.name "$GIT_AUTHOR_NAME"
 fi

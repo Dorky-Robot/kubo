@@ -348,10 +348,13 @@ impl Container {
         Ok(true)
     }
 
-    /// Count the number of exec sessions (interactive shells) attached to this container.
+    /// Count the number of *running* exec sessions attached to this container.
+    ///
+    /// Docker keeps stale exec IDs around after they exit, so we inspect each
+    /// one and only count those that are still running.
     pub fn exec_session_count(&self) -> Result<usize, KuboError> {
         let output = Command::new("docker")
-            .args(["inspect", "-f", "{{len .ExecIDs}}", &self.name])
+            .args(["inspect", "-f", "{{json .ExecIDs}}", &self.name])
             .output()?;
 
         if !output.status.success() {
@@ -359,11 +362,22 @@ impl Container {
         }
 
         let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        // Docker returns "<no value>" when ExecIDs is nil (no sessions)
-        if text == "<no value>" {
+        if text == "null" || text == "<no value>" || text.is_empty() {
             return Ok(0);
         }
-        Ok(text.parse::<usize>().unwrap_or(0))
+
+        let exec_ids: Vec<String> = serde_json::from_str(&text).unwrap_or_default();
+        let mut running = 0;
+        for id in &exec_ids {
+            let inspect = Command::new("docker")
+                .args(["inspect", "-f", "{{.Running}}", id])
+                .output()?;
+            let val = String::from_utf8_lossy(&inspect.stdout).trim().to_string();
+            if val == "true" {
+                running += 1;
+            }
+        }
+        Ok(running)
     }
 
     /// Update the container to the latest image. Recreates it.

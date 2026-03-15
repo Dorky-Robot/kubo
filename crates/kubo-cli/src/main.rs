@@ -246,22 +246,131 @@ fn cmd_ls() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    println!("{:<24} {:<20} MOUNTS", "NAME", "STATUS");
-    for ContainerStatus {
-        name,
-        status,
-        mounts,
-    } in &containers
-    {
-        let mount_str = if mounts.is_empty() {
-            "-".to_string()
+    let home = std::env::var("HOME").unwrap_or_default();
+    let term_width = terminal_width();
+
+    fn display_name(name: &str) -> &str {
+        name.strip_prefix("kubo-").unwrap_or(name)
+    }
+
+    // Partition into running and stopped
+    let (running, stopped): (Vec<_>, Vec<_>) = containers
+        .iter()
+        .partition(|c| c.status.starts_with("Up"));
+
+    let name_w = containers
+        .iter()
+        .map(|c| display_name(&c.name).len())
+        .max()
+        .unwrap_or(4)
+        .max(4);
+
+    let print_container = |c: &ContainerStatus| {
+        let icon = if c.status.starts_with("Up") {
+            "\u{25cf}"
         } else {
-            mounts.join(", ")
+            "\u{25cb}"
         };
-        println!("{:<24} {:<20} {}", name, status, mount_str);
+        let name = display_name(&c.name);
+
+        if c.mounts.is_empty() {
+            println!("{icon} {name:<name_w$}");
+            return;
+        }
+
+        let shorten = |p: &str| -> String {
+            if !home.is_empty() {
+                if let Some(rest) = p.strip_prefix(&home) {
+                    return format!("~{rest}");
+                }
+            }
+            p.to_string()
+        };
+
+        if c.mounts.len() == 1 {
+            println!("{icon} {name:<name_w$}  {}", shorten(&c.mounts[0]));
+            return;
+        }
+
+        // Multiple mounts: find common prefix, show root then project names
+        let prefix = common_dir_prefix(&c.mounts);
+        // indent for wrapped lines: "● " + name + "  "
+        let indent = 2 + name_w + 2;
+
+        if prefix.components().count() >= 2 {
+            let prefix_display = shorten(&prefix.to_string_lossy());
+            println!("{icon} {name:<name_w$}  {prefix_display}");
+
+            let suffixes: Vec<String> = c
+                .mounts
+                .iter()
+                .map(|m| {
+                    let prefix_str = prefix.to_string_lossy();
+                    m.strip_prefix(prefix_str.as_ref())
+                        .and_then(|s| s.strip_prefix('/'))
+                        .unwrap_or(m.as_str())
+                        .to_string()
+                })
+                .collect();
+
+            // Word-wrap the project names to terminal width
+            let available = term_width.saturating_sub(indent);
+            let mut line = String::new();
+            for (i, name) in suffixes.iter().enumerate() {
+                let sep = if i > 0 { ", " } else { "" };
+                if !line.is_empty() && line.len() + sep.len() + name.len() > available {
+                    println!("{:indent$}{line}", "");
+                    line = name.clone();
+                } else {
+                    line.push_str(sep);
+                    line.push_str(name);
+                }
+            }
+            if !line.is_empty() {
+                println!("{:indent$}{line}", "");
+            }
+        } else {
+            // No useful common prefix, just list paths
+            let paths: Vec<String> = c.mounts.iter().map(|m| shorten(m)).collect();
+            println!("{icon} {name:<name_w$}  {}", paths.join(", "));
+        }
+    };
+
+    for c in &running {
+        print_container(c);
+    }
+    if !running.is_empty() && !stopped.is_empty() {
+        println!();
+    }
+    for c in &stopped {
+        print_container(c);
     }
 
     Ok(())
+}
+
+/// Find the longest common directory prefix among a set of paths.
+fn common_dir_prefix(paths: &[String]) -> std::path::PathBuf {
+    paths
+        .iter()
+        .map(|p| std::path::PathBuf::from(p))
+        .reduce(|acc, p| {
+            acc.components()
+                .zip(p.components())
+                .take_while(|(a, b)| a == b)
+                .map(|(a, _)| a)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Best-effort terminal width, falls back to 80.
+fn terminal_width() -> usize {
+    // Try the COLUMNS env var first, then default
+    std::env::var("COLUMNS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(80)
 }
 
 fn cmd_stop(name: &str) -> Result<(), Box<dyn std::error::Error>> {

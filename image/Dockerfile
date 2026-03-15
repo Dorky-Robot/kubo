@@ -28,20 +28,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # ── Modern CLI tools (static binaries, no apt bloat) ──────────────
 RUN ARCH=$([ "$TARGETARCH" = "arm64" ] && echo "aarch64" || echo "x86_64") \
     # ripgrep
-    && curl -fsSL "https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/ripgrep-14.1.1-${ARCH}-unknown-linux-musl.tar.gz" \
+    && curl -fsSL "https://github.com/BurntSushi/ripgrep/releases/download/15.1.0/ripgrep-15.1.0-${ARCH}-unknown-linux-musl.tar.gz" \
     | tar -xz -C /tmp && cp /tmp/ripgrep-*/rg /usr/local/bin/ && rm -rf /tmp/ripgrep-* \
     # fd
-    && curl -fsSL "https://github.com/sharkdp/fd/releases/download/v10.2.0/fd-v10.2.0-${ARCH}-unknown-linux-musl.tar.gz" \
+    && curl -fsSL "https://github.com/sharkdp/fd/releases/download/v10.4.2/fd-v10.4.2-${ARCH}-unknown-linux-musl.tar.gz" \
     | tar -xz -C /tmp && cp /tmp/fd-*/fd /usr/local/bin/ && rm -rf /tmp/fd-* \
     # bat
-    && curl -fsSL "https://github.com/sharkdp/bat/releases/download/v0.24.0/bat-v0.24.0-${ARCH}-unknown-linux-musl.tar.gz" \
+    && curl -fsSL "https://github.com/sharkdp/bat/releases/download/v0.26.1/bat-v0.26.1-${ARCH}-unknown-linux-musl.tar.gz" \
     | tar -xz -C /tmp && cp /tmp/bat-*/bat /usr/local/bin/ && rm -rf /tmp/bat-* \
     # eza
-    && curl -fsSL "https://github.com/eza-community/eza/releases/download/v0.20.13/eza_${ARCH}-unknown-linux-musl.tar.gz" \
+    && curl -fsSL "https://github.com/eza-community/eza/releases/download/v0.23.4/eza_${ARCH}-unknown-linux-musl.tar.gz" \
     | tar -xz -C /tmp && cp /tmp/eza /usr/local/bin/ && rm -rf /tmp/eza \
     # fzf
     && FZF_ARCH=$([ "$TARGETARCH" = "arm64" ] && echo "arm64" || echo "amd64") \
-    && curl -fsSL "https://github.com/junegunn/fzf/releases/download/v0.57.0/fzf-0.57.0-linux_${FZF_ARCH}.tar.gz" \
+    && curl -fsSL "https://github.com/junegunn/fzf/releases/download/v0.70.0/fzf-0.70.0-linux_${FZF_ARCH}.tar.gz" \
     | tar -xz -C /usr/local/bin/
 
 # ── Rust (via rustup) ─────────────────────────────────────────────
@@ -66,15 +66,18 @@ RUN curl -fsSL https://fnm.vercel.app/install | bash -s -- --install-dir /usr/lo
     && /usr/local/fnm/fnm alias default 22 \
     && npm install -g https://github.com/Dorky-Robot/yolo.git
 
+# ── Katulong (web terminal) ──────────────────────────────────────
+RUN curl -fsSL https://raw.githubusercontent.com/dorky-robot/katulong/main/install.sh | sh
+
 # ── Go ────────────────────────────────────────────────────────────
 ENV PATH="/usr/local/go/bin:${PATH}"
 
 RUN GOARCH=$([ "$TARGETARCH" = "arm64" ] && echo "arm64" || echo "amd64") \
-    && curl -fsSL "https://go.dev/dl/go1.24.1.linux-${GOARCH}.tar.gz" | tar -C /usr/local -xz
+    && curl -fsSL "https://go.dev/dl/go1.26.1.linux-${GOARCH}.tar.gz" | tar -C /usr/local -xz
 
 # ── GitHub CLI ────────────────────────────────────────────────────
 RUN GH_ARCH=$([ "$TARGETARCH" = "arm64" ] && echo "arm64" || echo "amd64") \
-    && curl -fsSL "https://github.com/cli/cli/releases/download/v2.67.0/gh_2.67.0_linux_${GH_ARCH}.tar.gz" \
+    && curl -fsSL "https://github.com/cli/cli/releases/download/v2.88.1/gh_2.88.1_linux_${GH_ARCH}.tar.gz" \
     | tar -xz -C /tmp && cp /tmp/gh_*/bin/gh /usr/local/bin/ && rm -rf /tmp/gh_*
 
 # ── Dev user (non-root with sudo) ────────────────────────────────

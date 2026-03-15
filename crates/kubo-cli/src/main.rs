@@ -4,7 +4,7 @@ use clap::{Parser, Subcommand};
 use kubo_core::{Container, ContainerStatus};
 
 #[derive(Parser)]
-#[command(name = "kubo", about = "Isolated dev environments in Docker")]
+#[command(name = "kubo", about = "Isolated dev environments in Docker", version)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
@@ -121,24 +121,24 @@ fn main() {
 /// If it's a name matching an existing container, attach to it.
 fn cmd_open(target: &str) -> Result<(), Box<dyn std::error::Error>> {
     Container::check_docker()?;
-    kubo_core::image::ensure_image()?;
 
     let path = PathBuf::from(target);
 
-    // If it's an existing directory, use single-dir mode
     if path.is_dir() {
+        // It's a directory — need image to create/run container
+        kubo_core::image::ensure_image()?;
         let container = Container::from_path(&path)?;
         return open_container(container);
     }
 
-    // Otherwise treat it as a kubo name
-    if Container::name_exists(target)? {
-        let container = Container::load(target)?;
-        return open_container(container);
+    // Otherwise treat it as a kubo name — fail fast if it doesn't exist
+    if !Container::name_exists(target)? {
+        return Err(format!("'{target}' is not a directory or existing kubo").into());
     }
 
-    // Not a dir and not an existing kubo
-    Err(format!("'{target}' is not a directory or existing kubo").into())
+    kubo_core::image::ensure_image()?;
+    let container = Container::load(target)?;
+    open_container(container)
 }
 
 fn cmd_new(name: &str, dirs: &[PathBuf]) -> Result<(), Box<dyn std::error::Error>> {

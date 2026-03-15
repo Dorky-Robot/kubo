@@ -172,7 +172,7 @@ fn cmd_add(name: &str, dirs: &[PathBuf], force: bool) -> Result<(), Box<dyn std:
         container.save_pending_mounts(&container.mounts)?;
         eprintln!(
             "{} has {} active session{}. New mounts will apply when all sessions disconnect.",
-            container.name,
+            container.display_name(),
             sessions,
             if sessions == 1 { "" } else { "s" }
         );
@@ -190,13 +190,13 @@ fn cmd_add(name: &str, dirs: &[PathBuf], force: bool) -> Result<(), Box<dyn std:
     if sessions > 0 {
         eprintln!(
             "Warning: {} has {} active session{}, forcing recreate...",
-            container.name,
+            container.display_name(),
             sessions,
             if sessions == 1 { "" } else { "s" }
         );
     }
 
-    eprintln!("Recreating {} with new mounts...", container.name);
+    eprintln!("Recreating {} with new mounts...", container.display_name());
     container.recreate()?;
     // Clear any stale pending mounts from the home volume
     container.clear_pending_mounts()?;
@@ -227,9 +227,9 @@ fn open_container(mut container: Container) -> Result<(), Box<dyn std::error::Er
     }
 
     if created {
-        eprintln!("Created container: {}", container.name);
+        eprintln!("Created container: {}", container.display_name());
     } else {
-        eprintln!("Attaching to container: {}", container.name);
+        eprintln!("Attaching to container: {}", container.display_name());
     }
 
     let status = container.exec_shell()?;
@@ -249,10 +249,6 @@ fn cmd_ls() -> Result<(), Box<dyn std::error::Error>> {
     let home = std::env::var("HOME").unwrap_or_default();
     let term_width = terminal_width();
 
-    fn display_name(name: &str) -> &str {
-        name.strip_prefix("kubo-").unwrap_or(name)
-    }
-
     // Partition into running and stopped
     let (running, stopped): (Vec<_>, Vec<_>) = containers
         .iter()
@@ -260,7 +256,7 @@ fn cmd_ls() -> Result<(), Box<dyn std::error::Error>> {
 
     let name_w = containers
         .iter()
-        .map(|c| display_name(&c.name).len())
+        .map(|c| c.display_name().len())
         .max()
         .unwrap_or(4)
         .max(4);
@@ -271,7 +267,7 @@ fn cmd_ls() -> Result<(), Box<dyn std::error::Error>> {
         } else {
             "\u{25cb}"
         };
-        let name = display_name(&c.name);
+        let name = c.display_name();
 
         if c.mounts.is_empty() {
             println!("{icon} {name:<name_w$}");
@@ -378,7 +374,7 @@ fn cmd_stop(name: &str) -> Result<(), Box<dyn std::error::Error>> {
 
     let container = Container::load(name)?;
     container.stop()?;
-    println!("Stopped {}", container.name);
+    println!("Stopped {}", container.display_name());
     Ok(())
 }
 
@@ -387,7 +383,7 @@ fn cmd_rm(name: &str, volumes: bool) -> Result<(), Box<dyn std::error::Error>> {
 
     let container = Container::load(name)?;
     container.remove(volumes)?;
-    println!("Removed {}", container.name);
+    println!("Removed {}", container.display_name());
     if volumes {
         println!("Removed persistent volumes");
     }
@@ -411,18 +407,12 @@ fn cmd_export(
     Container::check_docker()?;
 
     let container = Container::load(name)?;
-    let default_output = PathBuf::from(format!(
-        "{}.kubo",
-        container
-            .name
-            .strip_prefix("kubo-")
-            .unwrap_or(&container.name)
-    ));
+    let default_output = PathBuf::from(format!("{}.kubo", container.display_name()));
     let output_path = output.unwrap_or(&default_output);
 
     eprintln!(
         "Exporting {} → {} ...",
-        container.name,
+        container.display_name(),
         output_path.display()
     );
     container.export(output_path)?;
@@ -446,7 +436,7 @@ fn cmd_import(
 
     eprintln!("Importing from {} ...", file.display());
     let container = Container::import(file, name, dirs)?;
-    eprintln!("Created container: {}", container.name);
+    eprintln!("Created container: {}", container.display_name());
 
     if dirs.is_empty() {
         eprintln!(
@@ -455,13 +445,7 @@ fn cmd_import(
         );
     }
 
-    eprintln!(
-        "Run `kubo {}` to attach.",
-        container
-            .name
-            .strip_prefix("kubo-")
-            .unwrap_or(&container.name)
-    );
+    eprintln!("Run `kubo {}` to attach.", container.display_name());
     Ok(())
 }
 

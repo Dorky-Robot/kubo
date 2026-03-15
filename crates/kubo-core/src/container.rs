@@ -56,7 +56,19 @@ pub struct ContainerStatus {
     pub mounts: Vec<String>,
 }
 
+impl ContainerStatus {
+    /// The user-facing name, without the internal "kubo-" prefix.
+    pub fn display_name(&self) -> &str {
+        self.name.strip_prefix("kubo-").unwrap_or(&self.name)
+    }
+}
+
 impl Container {
+    /// The user-facing name, without the internal "kubo-" prefix.
+    pub fn display_name(&self) -> &str {
+        self.name.strip_prefix("kubo-").unwrap_or(&self.name)
+    }
+
     /// Create a container from a name and a list of host directory paths.
     pub fn new(name: &str, dirs: &[PathBuf]) -> Result<Self, KuboError> {
         let mut mounts = Vec::new();
@@ -310,8 +322,8 @@ impl Container {
             if self.is_outdated()? {
                 eprintln!(
                     "Note: {} is using an older image. Run `kubo update {}` to upgrade.",
-                    self.name,
-                    self.name.strip_prefix("kubo-").unwrap_or(&self.name)
+                    self.display_name(),
+                    self.display_name()
                 );
             }
             if self.is_running()? {
@@ -326,7 +338,7 @@ impl Container {
             if !status.success() {
                 return Err(KuboError::Container(format!(
                     "failed to start existing container {}",
-                    self.name
+                    self.display_name()
                 )));
             }
             return Ok(false);
@@ -360,11 +372,11 @@ impl Container {
         if !self.exists()? {
             return Err(KuboError::Container(format!(
                 "container {} not found",
-                self.name
+                self.display_name()
             )));
         }
         if !self.is_outdated()? {
-            eprintln!("{} is already up to date.", self.name);
+            eprintln!("{} is already up to date.", self.display_name());
             return Ok(());
         }
 
@@ -372,7 +384,7 @@ impl Container {
         if sessions > 0 && !force {
             return Err(KuboError::Container(format!(
                 "{} has {} active session{}. Stop them first or use --force.",
-                self.name,
+                self.display_name(),
                 sessions,
                 if sessions == 1 { "" } else { "s" }
             )));
@@ -381,13 +393,13 @@ impl Container {
         if sessions > 0 {
             eprintln!(
                 "Warning: {} has {} active session{}, forcing update...",
-                self.name,
+                self.display_name(),
                 sessions,
                 if sessions == 1 { "" } else { "s" }
             );
         }
 
-        eprintln!("Updating {} to latest image...", self.name);
+        eprintln!("Updating {} to latest image...", self.display_name());
         self.recreate()?;
         Ok(())
     }
@@ -538,7 +550,7 @@ impl Container {
         if !status.success() {
             return Err(KuboError::Container(format!(
                 "failed to create container {}",
-                self.name
+                self.display_name()
             )));
         }
 
@@ -574,7 +586,7 @@ impl Container {
         if !status.success() {
             return Err(KuboError::Container(format!(
                 "failed to stop container {}",
-                self.name
+                self.display_name()
             )));
         }
         Ok(())
@@ -591,7 +603,7 @@ impl Container {
         if !status.success() {
             return Err(KuboError::Container(format!(
                 "failed to remove container {}",
-                self.name
+                self.display_name()
             )));
         }
 
@@ -626,7 +638,7 @@ impl Container {
         if !self.exists()? {
             return Err(KuboError::Container(format!(
                 "container {} not found",
-                self.name
+                self.display_name()
             )));
         }
 
@@ -661,7 +673,7 @@ impl Container {
         if !status.success() {
             return Err(KuboError::Container(format!(
                 "failed to export container {}",
-                self.name
+                self.display_name()
             )));
         }
 

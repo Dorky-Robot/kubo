@@ -34,7 +34,6 @@ alias g='git'
 alias gs='git status'
 alias gd='git diff'
 alias gl='git log --oneline -20'
-yolo() { claude --dangerously-skip-permissions "$@"; }
 alias ..='cd ..'
 alias ...='cd ../..'
 

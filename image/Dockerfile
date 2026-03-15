@@ -58,7 +58,8 @@ ENV PATH="/usr/local/fnm/aliases/default/bin:${PATH}"
 RUN curl -fsSL https://fnm.vercel.app/install | bash -s -- --install-dir /usr/local/fnm --skip-shell \
     && /usr/local/fnm/fnm install 22 \
     && /usr/local/fnm/fnm default 22 \
-    && /usr/local/fnm/fnm alias default 22
+    && /usr/local/fnm/fnm alias default 22 \
+    && npm install -g https://github.com/Dorky-Robot/yolo.git
 
 # ── Go ────────────────────────────────────────────────────────────
 ENV PATH="/usr/local/go/bin:${PATH}"

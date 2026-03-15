@@ -3,8 +3,13 @@ use std::process::{Command, Stdio};
 
 use crate::KuboError;
 
+use std::io::Write;
+
 const IMAGE: &str = "kubo:latest";
 const LABEL: &str = "managed-by=kubo";
+/// File inside the container (on the persistent home volume) where deferred
+/// mount changes are stored when active sessions prevent an immediate recreate.
+const PENDING_MOUNTS_PATH: &str = "/home/dev/.kubo/pending-mounts.json";
 
 /// Manifest stored inside a .kubo export archive.
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -332,7 +337,7 @@ impl Container {
     }
 
     /// Count the number of exec sessions (interactive shells) attached to this container.
-    fn exec_session_count(&self) -> Result<usize, KuboError> {
+    pub fn exec_session_count(&self) -> Result<usize, KuboError> {
         let output = Command::new("docker")
             .args(["inspect", "-f", "{{len .ExecIDs}}", &self.name])
             .output()?;
@@ -876,6 +881,83 @@ impl Container {
             name: container_name,
             mounts,
         })
+    }
+
+    /// Save pending mount configuration inside the running container.
+    ///
+    /// The file is written to the persistent home volume so it survives
+    /// container restarts but is accessible from inside the container.
+    pub fn save_pending_mounts(&self, mounts: &[Mount]) -> Result<(), KuboError> {
+        let serde_mounts: Vec<MountSerde> = mounts
+            .iter()
+            .map(|m| MountSerde {
+                host: m.host_path.display().to_string(),
+                container: m.container_path.clone(),
+            })
+            .collect();
+        let json = serde_json::to_string_pretty(&serde_mounts)
+            .map_err(|e| KuboError::Container(format!("failed to serialize mounts: {e}")))?;
+
+        let mut child = Command::new("docker")
+            .args([
+                "exec",
+                "-i",
+                &self.name,
+                "sh",
+                "-c",
+                &format!("mkdir -p /home/dev/.kubo && cat > {PENDING_MOUNTS_PATH}"),
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()?;
+
+        if let Some(mut stdin) = child.stdin.take() {
+            stdin.write_all(json.as_bytes())?;
+        }
+
+        let status = child.wait()?;
+        if !status.success() {
+            return Err(KuboError::Container("failed to save pending mounts".into()));
+        }
+        Ok(())
+    }
+
+    /// Read pending mount configuration from inside the container, if any.
+    pub fn read_pending_mounts(&self) -> Result<Option<Vec<Mount>>, KuboError> {
+        let output = Command::new("docker")
+            .args(["exec", &self.name, "cat", PENDING_MOUNTS_PATH])
+            .output()?;
+
+        if !output.status.success() {
+            return Ok(None);
+        }
+
+        let json = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if json.is_empty() {
+            return Ok(None);
+        }
+
+        let mounts = serde_json::from_str::<Vec<MountSerde>>(&json)
+            .map_err(|e| KuboError::Container(format!("bad pending mounts: {e}")))?
+            .into_iter()
+            .map(|m| Mount {
+                host_path: PathBuf::from(m.host),
+                container_path: m.container,
+            })
+            .collect();
+
+        Ok(Some(mounts))
+    }
+
+    /// Remove the pending mounts file from inside the container.
+    pub fn clear_pending_mounts(&self) -> Result<(), KuboError> {
+        let _ = Command::new("docker")
+            .args(["exec", &self.name, "rm", "-f", PENDING_MOUNTS_PATH])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        Ok(())
     }
 
     /// List all kubo-managed containers.

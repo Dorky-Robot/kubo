@@ -28,6 +28,9 @@ enum Command {
         name: String,
         /// Directories to add
         dirs: Vec<PathBuf>,
+        /// Force recreate even if there are active sessions
+        #[arg(long)]
+        force: bool,
     },
     /// List all kubo containers
     Ls,
@@ -82,7 +85,7 @@ fn main() {
 
     let result = match cli.command {
         Some(Command::New { name, dirs }) => cmd_new(&name, &dirs),
-        Some(Command::Add { name, dirs }) => cmd_add(&name, &dirs),
+        Some(Command::Add { name, dirs, force }) => cmd_add(&name, &dirs, force),
         Some(Command::Ls) => cmd_ls(),
         Some(Command::Stop { name }) => cmd_stop(&name),
         Some(Command::Rm { name, volumes }) => cmd_rm(&name, volumes),
@@ -150,7 +153,7 @@ fn cmd_new(name: &str, dirs: &[PathBuf]) -> Result<(), Box<dyn std::error::Error
     open_container(container)
 }
 
-fn cmd_add(name: &str, dirs: &[PathBuf]) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_add(name: &str, dirs: &[PathBuf], force: bool) -> Result<(), Box<dyn std::error::Error>> {
     if dirs.is_empty() {
         return Err("provide at least one directory".into());
     }
@@ -163,13 +166,66 @@ fn cmd_add(name: &str, dirs: &[PathBuf]) -> Result<(), Box<dyn std::error::Error
         container.add_mount(dir)?;
     }
 
+    let sessions = container.exec_session_count()?;
+    if sessions > 0 && !force {
+        // Defer: save pending mounts for next idle attach
+        container.save_pending_mounts(&container.mounts)?;
+        eprintln!(
+            "{} has {} active session{}. New mounts will apply when all sessions disconnect.",
+            container.name,
+            sessions,
+            if sessions == 1 { "" } else { "s" }
+        );
+        eprintln!(
+            "Or use `kubo add --force {} {}` to recreate now.",
+            name,
+            dirs.iter()
+                .map(|d| d.display().to_string())
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
+        return Ok(());
+    }
+
+    if sessions > 0 {
+        eprintln!(
+            "Warning: {} has {} active session{}, forcing recreate...",
+            container.name,
+            sessions,
+            if sessions == 1 { "" } else { "s" }
+        );
+    }
+
     eprintln!("Recreating {} with new mounts...", container.name);
     container.recreate()?;
+    // Clear any stale pending mounts from the home volume
+    container.clear_pending_mounts()?;
     open_container(container)
 }
 
-fn open_container(container: Container) -> Result<(), Box<dyn std::error::Error>> {
+fn open_container(mut container: Container) -> Result<(), Box<dyn std::error::Error>> {
     let created = container.ensure_running()?;
+
+    // Check for deferred mount changes (from `kubo add` while sessions were active)
+    if let Ok(Some(pending)) = container.read_pending_mounts() {
+        let sessions = container.exec_session_count().unwrap_or(0);
+        if sessions == 0 {
+            // No other sessions — safe to apply
+            if pending != container.mounts {
+                eprintln!("Applying deferred mount changes...");
+                container.mounts = pending;
+                container.recreate()?;
+            }
+            container.clear_pending_mounts()?;
+        } else {
+            eprintln!(
+                "Note: pending mount changes waiting. {} other session{} must disconnect first.",
+                sessions,
+                if sessions == 1 { "" } else { "s" }
+            );
+        }
+    }
+
     if created {
         eprintln!("Created container: {}", container.name);
     } else {

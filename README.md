@@ -16,8 +16,8 @@ Claude Code is most useful when you let it run without guardrails — `--dangero
 ## Quick start
 
 ```bash
-# Install
-cargo install --path crates/kubo-cli
+# Install (macOS)
+brew install Dorky-Robot/tap/kubo
 
 # Open a project in an isolated container
 kubo myproject
@@ -107,8 +107,22 @@ kubo version                  show version and image hash
 
 ## Install
 
+Requires Docker.
+
+**macOS (Homebrew):**
+
+```bash
+brew install Dorky-Robot/tap/kubo
+```
+
+**Linux / macOS (script):**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Dorky-Robot/kubo/main/install.sh | sh
+```
+
+**From source:**
+
 ```bash
 cargo install --path crates/kubo-cli
 ```
-
-Requires Docker.

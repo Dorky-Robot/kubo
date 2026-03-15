@@ -54,6 +54,8 @@ pub struct ContainerStatus {
     pub name: String,
     pub status: String,
     pub mounts: Vec<String>,
+    pub active_sessions: usize,
+    pub running: bool,
 }
 
 impl ContainerStatus {
@@ -1017,10 +1019,27 @@ impl Container {
                             .into_iter()
                             .map(|m| m.host)
                             .collect();
+                    let name = parts[0].to_string();
+                    let status = parts[1].to_string();
+                    let is_running = status.starts_with("Up");
+
+                    // Count active exec sessions for running containers
+                    let active_sessions = if is_running {
+                        let c = Container {
+                            name: name.clone(),
+                            mounts: Vec::new(),
+                        };
+                        c.exec_session_count().unwrap_or(0)
+                    } else {
+                        0
+                    };
+
                     Some(ContainerStatus {
-                        name: parts[0].to_string(),
-                        status: parts[1].to_string(),
+                        name,
+                        status,
                         mounts: mount_paths,
+                        active_sessions,
+                        running: is_running,
                     })
                 } else {
                     None

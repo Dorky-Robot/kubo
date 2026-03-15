@@ -250,9 +250,7 @@ fn cmd_ls() -> Result<(), Box<dyn std::error::Error>> {
     let term_width = terminal_width();
 
     // Partition into running and stopped
-    let (running, stopped): (Vec<_>, Vec<_>) = containers
-        .iter()
-        .partition(|c| c.status.starts_with("Up"));
+    let (running, stopped): (Vec<_>, Vec<_>) = containers.iter().partition(|c| c.running);
 
     let name_w = containers
         .iter()
@@ -262,10 +260,12 @@ fn cmd_ls() -> Result<(), Box<dyn std::error::Error>> {
         .max(4);
 
     let print_container = |c: &ContainerStatus| {
-        let icon = if c.status.starts_with("Up") {
-            "\u{25cf}"
+        let icon = if c.active_sessions > 0 {
+            "\u{25cf}" // filled — active sessions
+        } else if c.running {
+            "\u{25cb}" // hollow — running but idle
         } else {
-            "\u{25cb}"
+            "\u{25ab}" // small square — stopped
         };
         let name = c.display_name();
 
@@ -275,10 +275,10 @@ fn cmd_ls() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         let shorten = |p: &str| -> String {
-            if !home.is_empty() {
-                if let Some(rest) = p.strip_prefix(&home) {
-                    return format!("~{rest}");
-                }
+            if !home.is_empty()
+                && let Some(rest) = p.strip_prefix(&home)
+            {
+                return format!("~{rest}");
             }
             p.to_string()
         };
@@ -349,7 +349,7 @@ fn cmd_ls() -> Result<(), Box<dyn std::error::Error>> {
 fn common_dir_prefix(paths: &[String]) -> std::path::PathBuf {
     paths
         .iter()
-        .map(|p| std::path::PathBuf::from(p))
+        .map(std::path::PathBuf::from)
         .reduce(|acc, p| {
             acc.components()
                 .zip(p.components())

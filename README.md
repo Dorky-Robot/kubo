@@ -107,19 +107,36 @@ kubo refresh             # rebuild image + update ALL running containers
 
 ## What's inside
 
-The kubo image comes with:
+**Dev stack:**
 
 - **Claude Code** — plus `yolo` (passes all flags: `yolo --resume`, `yolo -p "fix the tests"`)
-- **Rust** (stable + clippy/rustfmt)
-- **Node 22** (via fnm)
-- **Go 1.24**
+- **Rust** (stable + clippy/rustfmt), **Node 22** (fnm), **Go**
 - **GitHub CLI** (gh)
 - **Build essentials** (gcc, pkg-config, libssl-dev, libsqlite3-dev)
-- **Cloudflared** — expose dev servers via Cloudflare Tunnels
 - **Terminal tools**: fzf, ripgrep, fd, bat, eza, jq, htop, tmux
 - **Zsh** with oh-my-zsh, autosuggestions, and syntax highlighting
 
-Your host `~/.ssh`, `~/.config/gh`, `~/.config/tunnels`, and git identity are passed through.
+**[Dorky Robot](https://dorkyrobot.com) tools:**
+
+- **[Katulong](https://github.com/Dorky-Robot/katulong)** — web terminal that lets you access your kubo sessions from any device (phone, tablet, another machine). Paste images from your device's clipboard into Claude Code sessions.
+- **[Cloudflared](https://github.com/cloudflare/cloudflared)** — expose dev servers to the internet via Cloudflare Tunnels. Start an app inside kubo and share it instantly with `cloudflared tunnel --url http://localhost:3000`.
+- **[Sipag](https://github.com/Dorky-Robot/sipag)** — autonomous PR agent. Picks up GitHub issues and opens pull requests using Claude Code. Runs inside kubo so it can't damage your host.
+
+## Host config passthrough
+
+kubo auto-detects tool configs on your host and mounts them into the container so credentials come with you. Only configs that exist are mounted — kubo works fine on machines without these tools.
+
+| Host path | Purpose | Mode |
+|---|---|---|
+| `~/.ssh` | Git SSH keys | read-only |
+| `~/.config/gh` | GitHub CLI auth | read-write |
+| `~/.config/tunnels` | [Tunnels](https://github.com/Dorky-Robot/tunnels) tokens and API keys | read-only |
+| `~/.config/katulong` | Katulong instance config | read-only |
+| `~/.config/yelo` | [Yelo](https://github.com/Dorky-Robot/yelo) S3/Glacier credentials | read-only |
+| `~/.cloudflared` | Cloudflared auth certificate | read-only |
+| `~/.katulong/uploads` | Clipboard bridge for image paste | read-write |
+
+Git identity (`user.name`, `user.email`, signing key) is passed via environment variables so your commits inside the container are attributed correctly.
 
 ## Commands
 

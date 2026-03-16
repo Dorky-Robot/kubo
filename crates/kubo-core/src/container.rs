@@ -504,10 +504,17 @@ impl Container {
                 }
             }
 
-            // Read-only mounts
+            // Read-only mounts — auto-detected host configs.
+            // Only mounted if they exist, so kubo works on machines
+            // that don't have all the Dorky Robot tools installed.
             let ro_mounts: &[(&str, &str)] = &[
                 (".ssh", "/home/dev/.ssh"),
+                // Dorky Robot tool configs
                 (".config/tunnels", "/home/dev/.config/tunnels"),
+                (".config/katulong", "/home/dev/.config/katulong"),
+                (".config/yelo", "/home/dev/.config/yelo"),
+                // Cloudflared auth cert
+                (".cloudflared", "/home/dev/.cloudflared"),
             ];
 
             // Read-write mounts — katulong uploads need to be writable so

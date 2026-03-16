@@ -4,7 +4,12 @@ use clap::{Parser, Subcommand};
 use kubo_core::{Container, ContainerStatus};
 
 #[derive(Parser)]
-#[command(name = "kubo", about = "Isolated dev environments in Docker", version)]
+#[command(
+    name = "kubo",
+    about = "Isolated dev environments in Docker",
+    version,
+    args_conflicts_with_subcommands = true
+)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
@@ -74,8 +79,14 @@ enum Command {
         #[arg(short, long)]
         dir: Vec<PathBuf>,
     },
+    /// Rebuild image (no cache) and update all running containers
+    Refresh,
     /// Force rebuild the kubo Docker image
-    Build,
+    Build {
+        /// Skip Docker layer cache (fetch latest remote tools)
+        #[arg(long)]
+        no_cache: bool,
+    },
     /// Show kubo version and image info
     Version,
 }
@@ -92,7 +103,8 @@ fn main() {
         Some(Command::Update { name, force }) => cmd_update(&name, force),
         Some(Command::Export { name, output }) => cmd_export(&name, output.as_deref()),
         Some(Command::Import { file, name, dir }) => cmd_import(&file, name.as_deref(), &dir),
-        Some(Command::Build) => cmd_build(),
+        Some(Command::Refresh) => cmd_refresh(),
+        Some(Command::Build { no_cache }) => cmd_build(no_cache),
         Some(Command::Version) => cmd_version(),
         None => match cli.target {
             Some(target) => cmd_open(&target),
@@ -103,6 +115,9 @@ fn main() {
                 eprintln!("       kubo add <name> <dirs...>     add dirs to existing kubo");
                 eprintln!("       kubo ls                       list containers");
                 eprintln!("       kubo stop/rm <name>           manage containers");
+                eprintln!(
+                    "       kubo refresh                  rebuild image + update all containers"
+                );
                 eprintln!("       kubo export <name>            export kubo to portable file");
                 eprintln!("       kubo import <file>            import kubo from file");
                 eprintln!("\nTry: kubo .");
@@ -269,8 +284,28 @@ fn cmd_ls() -> Result<(), Box<dyn std::error::Error>> {
         };
         let name = c.display_name();
 
+        // Show version — just the semver part, with an indicator if outdated
+        let current_ver = kubo_core::image::version();
+        let ver_display = if c.image_version.is_empty() {
+            "?".to_string()
+        } else if c.image_version == current_ver {
+            // Extract just the semver (before the hash)
+            c.image_version
+                .split('-')
+                .next()
+                .unwrap_or(&c.image_version)
+                .to_string()
+        } else {
+            let ver = c
+                .image_version
+                .split('-')
+                .next()
+                .unwrap_or(&c.image_version);
+            format!("{ver} \u{2191}") // ↑ = update available
+        };
+
         if c.mounts.is_empty() {
-            println!("{icon} {name:<name_w$}");
+            println!("{icon} {name:<name_w$}  v{ver_display}");
             return;
         }
 
@@ -284,7 +319,10 @@ fn cmd_ls() -> Result<(), Box<dyn std::error::Error>> {
         };
 
         if c.mounts.len() == 1 {
-            println!("{icon} {name:<name_w$}  {}", shorten(&c.mounts[0]));
+            println!(
+                "{icon} {name:<name_w$}  {}  v{ver_display}",
+                shorten(&c.mounts[0])
+            );
             return;
         }
 
@@ -295,7 +333,7 @@ fn cmd_ls() -> Result<(), Box<dyn std::error::Error>> {
 
         if prefix.components().count() >= 2 {
             let prefix_display = shorten(&prefix.to_string_lossy());
-            println!("{icon} {name:<name_w$}  {prefix_display}");
+            println!("{icon} {name:<name_w$}  {prefix_display}  v{ver_display}");
 
             let suffixes: Vec<String> = c
                 .mounts
@@ -328,7 +366,10 @@ fn cmd_ls() -> Result<(), Box<dyn std::error::Error>> {
         } else {
             // No useful common prefix, just list paths
             let paths: Vec<String> = c.mounts.iter().map(|m| shorten(m)).collect();
-            println!("{icon} {name:<name_w$}  {}", paths.join(", "));
+            println!(
+                "{icon} {name:<name_w$}  {}  v{ver_display}",
+                paths.join(", ")
+            );
         }
     };
 
@@ -392,12 +433,10 @@ fn cmd_rm(name: &str, volumes: bool) -> Result<(), Box<dyn std::error::Error>> {
 
 fn cmd_update(name: &str, force: bool) -> Result<(), Box<dyn std::error::Error>> {
     Container::check_docker()?;
-    kubo_core::image::ensure_image()?;
 
     let container = Container::load(name)?;
     container.update(force)?;
-    eprintln!("Done. Run `kubo {}` to attach.", name);
-    Ok(())
+    open_container(container)
 }
 
 fn cmd_export(
@@ -449,9 +488,39 @@ fn cmd_import(
     Ok(())
 }
 
-fn cmd_build() -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_refresh() -> Result<(), Box<dyn std::error::Error>> {
     Container::check_docker()?;
-    kubo_core::image::build_image()?;
+
+    // Rebuild image from scratch (no cache) to pick up latest remote tools
+    eprintln!("Rebuilding kubo image (no cache)...");
+    kubo_core::image::build_image(true)?;
+    eprintln!("Image rebuilt.");
+
+    // Update all running containers to the new image
+    let containers = Container::list_all()?;
+    let running: Vec<_> = containers.iter().filter(|c| c.running).collect();
+
+    if running.is_empty() {
+        eprintln!("No running containers to update.");
+        return Ok(());
+    }
+
+    for c in &running {
+        let container = Container::load(&c.name)?;
+        eprintln!("Updating {}...", container.display_name());
+        container.recreate()?;
+        // Start the recreated container
+        container.ensure_running()?;
+        eprintln!("  {} updated.", container.display_name());
+    }
+
+    eprintln!("All containers refreshed.");
+    Ok(())
+}
+
+fn cmd_build(no_cache: bool) -> Result<(), Box<dyn std::error::Error>> {
+    Container::check_docker()?;
+    kubo_core::image::build_image(no_cache)?;
     eprintln!("Done.");
     Ok(())
 }

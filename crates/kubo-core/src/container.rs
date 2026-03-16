@@ -56,6 +56,7 @@ pub struct ContainerStatus {
     pub mounts: Vec<String>,
     pub active_sessions: usize,
     pub running: bool,
+    pub image_version: String,
 }
 
 impl ContainerStatus {
@@ -382,18 +383,14 @@ impl Container {
         Ok(running)
     }
 
-    /// Update the container to the latest image. Recreates it.
-    /// Refuses to update if there are active exec sessions (other shells attached).
+    /// Update the container: rebuild the image from scratch and recreate.
+    /// This fetches the latest versions of all tools (katulong, claude, gh, etc).
     pub fn update(&self, force: bool) -> Result<(), KuboError> {
         if !self.exists()? {
             return Err(KuboError::Container(format!(
                 "container {} not found",
                 self.display_name()
             )));
-        }
-        if !self.is_outdated()? {
-            eprintln!("{} is already up to date.", self.display_name());
-            return Ok(());
         }
 
         let sessions = self.exec_session_count()?;
@@ -415,7 +412,11 @@ impl Container {
             );
         }
 
-        eprintln!("Updating {} to latest image...", self.display_name());
+        // Rebuild image from scratch (no cache) to get latest tool versions
+        eprintln!("Rebuilding kubo image (fetching latest tools)...");
+        crate::image::build_image(true)?;
+
+        eprintln!("Recreating {}...", self.display_name());
         self.recreate()?;
         Ok(())
     }
@@ -998,7 +999,7 @@ impl Container {
                 "--filter",
                 &format!("label={LABEL}"),
                 "--format",
-                "{{.Names}}\t{{.Status}}\t{{.Label \"kubo.mounts\"}}",
+                "{{.Names}}\t{{.Status}}\t{{.Label \"kubo.mounts\"}}\t{{.Label \"kubo.image-version\"}}",
             ])
             .output()?;
 
@@ -1011,7 +1012,7 @@ impl Container {
             .lines()
             .filter(|line| !line.is_empty())
             .filter_map(|line| {
-                let parts: Vec<&str> = line.splitn(3, '\t').collect();
+                let parts: Vec<&str> = line.splitn(4, '\t').collect();
                 if parts.len() >= 2 {
                     let mounts_json = parts.get(2).unwrap_or(&"");
                     let mount_paths: Vec<String> =
@@ -1022,6 +1023,7 @@ impl Container {
                             .collect();
                     let name = parts[0].to_string();
                     let status = parts[1].to_string();
+                    let image_version = parts.get(3).unwrap_or(&"").to_string();
                     let is_running = status.starts_with("Up");
 
                     // Count active exec sessions for running containers
@@ -1041,6 +1043,7 @@ impl Container {
                         mounts: mount_paths,
                         active_sessions,
                         running: is_running,
+                        image_version,
                     })
                 } else {
                     None

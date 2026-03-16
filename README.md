@@ -7,7 +7,7 @@ kubo myproject
 yolo    # claude --dangerously-skip-permissions, safe inside the container
 ```
 
-kubo mounts your project into a Docker container with a complete dev stack. Claude can install packages, modify system files, run arbitrary commands — all sandboxed. Your project files stay synced at `/work/<project>/`, everything else is disposable.
+kubo mounts your project into a Docker container with a complete dev stack. Claude can install packages, modify system files, run arbitrary commands — all sandboxed. Your project files stay synced at `/work/<project>/`, and everything you install persists across updates.
 
 ## Why
 
@@ -67,42 +67,36 @@ frontend main > npm run dev    # starts on port 3000
 tunnels route add app.dorkyrobot.com 3000 --tunnel prod
 ```
 
-## Persistent volumes
+## Updates without data loss
 
-Each container gets named Docker volumes (`{name}-home` and `{name}-work`) that survive container recreates and image upgrades. Installed tools, shell history, and configuration persist across sessions. To clean up volumes when removing a container:
+Unlike vanilla Docker, kubo preserves your work across updates. Each container gets persistent volumes for `/home/dev` and `/work` — your shell history, Claude config, installed tools, and everything else survives when the container is rebuilt.
+
+```bash
+# Update a container — rebuilds image with latest tools, keeps all your data
+kubo update myproject
+```
+
+This rebuilds the Docker image from scratch (fetching the latest versions of Claude Code, katulong, gh, etc.), recreates the container, and drops you right back in. Your `~/.claude` sessions, git repos, npm packages, and anything else you've set up are all still there.
+
+To fully wipe a container and its data:
 
 ```bash
 kubo rm myproject --volumes
 ```
 
-## Export & import
+## Auto-image management
 
-Package a container into a portable `.kubo` archive and restore it elsewhere:
+The Docker image definition is embedded in the kubo binary. When you `brew upgrade kubo`:
 
-```bash
-# Export a container
-kubo export myproject
-kubo export myproject -o ./backup.kubo
+1. New Dockerfile baked into the binary → image hash changes
+2. Next `kubo myproject` detects the mismatch → rebuilds image automatically
+3. You get the new image on your next attach — no extra steps
 
-# Import on another machine
-kubo import myproject.kubo
-kubo import myproject.kubo -n new-name -d ./local/path
-```
-
-## Auto-updates
-
-The Docker image is embedded in the kubo binary. When you upgrade kubo:
-
-1. Image files change → new image hash baked into the binary
-2. `kubo myproject` detects the mismatch → rebuilds image automatically
-3. Existing containers on the old image → recreated with the new image
-
-No manual `docker build` or `kubo rm` needed. Just upgrade and go.
-
-You can also update a specific container to the latest image without waiting for reattach:
+For on-demand updates (new tool versions without a kubo release):
 
 ```bash
-kubo update myproject
+kubo update myproject    # rebuild image + recreate container, keep data
+kubo refresh             # rebuild image + update ALL running containers
 ```
 
 ## What's inside
@@ -127,7 +121,8 @@ kubo <dir>                    open dir in a container
 kubo <name>                   attach to a named kubo
 kubo new <name> <dirs...>     create a named kubo with multiple dirs
 kubo add <name> <dirs...>     add dirs to an existing kubo
-kubo update <name>            update container to latest image
+kubo update <name>            rebuild image + recreate container (keeps data)
+kubo refresh                  rebuild image + update ALL containers
 kubo export <name>            export container to a .kubo archive
 kubo import <file>            import container from a .kubo archive
 kubo ls                       list containers

@@ -43,7 +43,9 @@ pub fn image_up_to_date() -> Result<bool, KuboError> {
 }
 
 /// Build the kubo image from embedded files.
-pub fn build_image() -> Result<(), KuboError> {
+/// If `no_cache` is true, Docker layer cache is bypassed (useful for
+/// picking up new versions of tools installed via remote scripts).
+pub fn build_image(no_cache: bool) -> Result<(), KuboError> {
     let tmp = tempfile::tempdir().map_err(KuboError::Io)?;
     let dir = tmp.path();
 
@@ -59,8 +61,14 @@ pub fn build_image() -> Result<(), KuboError> {
     fs::write(dir.join("pbcopy"), PBCOPY)?;
     fs::write(dir.join("clip"), CLIP)?;
 
+    let mut args = vec!["build", "-t", IMAGE_TAG];
+    if no_cache {
+        args.push("--no-cache");
+    }
+    args.push(".");
+
     let status = Command::new("docker")
-        .args(["build", "-t", IMAGE_TAG, "."])
+        .args(&args)
         .current_dir(dir)
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
@@ -79,7 +87,7 @@ pub fn ensure_image() -> Result<(), KuboError> {
         return Ok(());
     }
     eprintln!("Building kubo image (v{IMAGE_VERSION})...");
-    build_image()?;
+    build_image(false)?;
     eprintln!("Image ready.");
     Ok(())
 }

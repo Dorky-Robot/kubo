@@ -507,15 +507,16 @@ impl Container {
             let ro_mounts: &[(&str, &str)] = &[(".ssh", "/home/dev/.ssh")];
 
             // Read-write mounts — katulong uploads need to be writable so
-            // katulong running inside the container can save uploaded images
-            // from the clipboard bridge (and pbpaste can read them back).
+            // the clipboard bridge can share images between host and container.
+            // Always create the directory so the mount is guaranteed to exist
+            // (previously conditional, causing images uploaded after container
+            // creation to be unreachable inside the container).
             let katulong_uploads = home.join(".katulong/uploads");
-            if katulong_uploads.exists() {
-                args.extend([
-                    "-v".to_string(),
-                    format!("{}:/home/dev/.katulong/uploads", katulong_uploads.display()),
-                ]);
-            }
+            let _ = std::fs::create_dir_all(&katulong_uploads);
+            args.extend([
+                "-v".to_string(),
+                format!("{}:/home/dev/.katulong/uploads", katulong_uploads.display()),
+            ]);
 
             for (src, dest) in ro_mounts {
                 let host_path = home.join(src);

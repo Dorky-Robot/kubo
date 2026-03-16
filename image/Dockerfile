@@ -77,9 +77,9 @@ RUN GOARCH=$([ "$TARGETARCH" = "arm64" ] && echo "arm64" || echo "amd64") \
     && curl -fsSL "https://go.dev/dl/go1.26.1.linux-${GOARCH}.tar.gz" | tar -C /usr/local -xz
 
 # ── Cloudflared (for tunnels / staging) ───────────────────────────
-RUN CF_ARCH=$(dpkg --print-architecture) \
-    && curl -fsSL "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${CF_ARCH}.deb" -o /tmp/cloudflared.deb \
-    && dpkg -i /tmp/cloudflared.deb && rm /tmp/cloudflared.deb
+RUN CF_ARCH=$(uname -m | sed 's/aarch64/arm64/' | sed 's/x86_64/amd64/') \
+    && curl -fsSL "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${CF_ARCH}" -o /usr/local/bin/cloudflared \
+    && chmod +x /usr/local/bin/cloudflared
 
 # ── GitHub CLI ────────────────────────────────────────────────────
 RUN GH_ARCH=$([ "$TARGETARCH" = "arm64" ] && echo "arm64" || echo "amd64") \

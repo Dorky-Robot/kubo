@@ -18,7 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl-dev libsqlite3-dev \
     # locale
     locales \
-    # clipboard (for katulong image paste → Claude Code)
+    # clipboard (for katulong image paste → Claude Code via xclip + Xvfb)
     xclip xvfb \
     # misc
     unzip file sudo procps \
@@ -67,6 +67,7 @@ RUN curl -fsSL https://fnm.vercel.app/install | bash -s -- --install-dir /usr/lo
     && npm install -g https://github.com/Dorky-Robot/yolo.git
 
 # ── Katulong (web terminal) ──────────────────────────────────────
+ARG KATULONG_VERSION=0.27.0
 RUN curl -fsSL https://raw.githubusercontent.com/dorky-robot/katulong/main/install.sh | sh
 
 # ── Go ────────────────────────────────────────────────────────────
@@ -76,7 +77,7 @@ RUN GOARCH=$([ "$TARGETARCH" = "arm64" ] && echo "arm64" || echo "amd64") \
     && curl -fsSL "https://go.dev/dl/go1.26.1.linux-${GOARCH}.tar.gz" | tar -C /usr/local -xz
 
 # ── Cloudflared (for tunnels / staging) ───────────────────────────
-RUN CF_ARCH=$([ "$TARGETARCH" = "arm64" ] && echo "arm64" || echo "amd64") \
+RUN CF_ARCH=$(dpkg --print-architecture) \
     && curl -fsSL "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${CF_ARCH}.deb" -o /tmp/cloudflared.deb \
     && dpkg -i /tmp/cloudflared.deb && rm /tmp/cloudflared.deb
 
@@ -105,6 +106,12 @@ RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master
 COPY --chown=dev:dev zshrc /home/dev/.zshrc
 
 # ── Clipboard bridge (for katulong image paste) ──────────────────
+# DISPLAY must be set via ENV (not just entrypoint export) so that
+# docker exec sessions inherit it. Without this, Claude Code inside
+# a `kubo` shell can't read the X clipboard via xclip — the entrypoint
+# starts Xvfb on :99 but `export DISPLAY=:99` only affects PID 1's
+# children, not processes spawned by docker exec.
+ENV DISPLAY=:99
 COPY pbpaste pbcopy clip /usr/local/bin/
 USER root
 RUN chmod +x /usr/local/bin/pbpaste /usr/local/bin/pbcopy /usr/local/bin/clip

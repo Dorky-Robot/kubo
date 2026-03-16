@@ -594,7 +594,7 @@ impl Container {
     /// Exec into the container with an interactive shell.
     pub fn exec_shell(&self) -> Result<std::process::ExitStatus, KuboError> {
         let status = Command::new("docker")
-            .args(["exec", "-it", "-u", "dev", "-w", "/work", &self.name, "zsh"])
+            .args(["exec", "-it", "-u", "dev", "-e", "DISPLAY=:99", "-w", "/work", &self.name, "zsh"])
             .stdin(Stdio::inherit())
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())

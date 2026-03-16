@@ -54,18 +54,24 @@ work > cd frontend
 frontend main > yolo
 ```
 
-## Port forwarding
+## Staging with Cloudflare Tunnels
 
-Containers use host networking — any port your app binds to is accessible on the host immediately. If you use [tunnels](https://github.com/Dorky-Robot/tunnels) to expose local ports via Cloudflare:
+Containers use host networking and come with [cloudflared](https://github.com/cloudflare/cloudflared) built in. Spin up a dev server inside kubo and expose it to the internet in seconds:
 
 ```bash
-# Inside kubo
+# Inside kubo — start your app
 work > cd frontend
 frontend main > npm run dev    # starts on port 3000
 
-# On the host (separate terminal) — works because of host networking
+# Quick ad-hoc tunnel (no config needed)
+frontend main > cloudflared tunnel --url http://localhost:3000
+
+# Or use tunnels (https://github.com/Dorky-Robot/tunnels) on the host
+# for persistent subdomain routing — works because of host networking
 tunnels route add app.dorkyrobot.com 3000 --tunnel prod
 ```
+
+Your host's `~/.config/tunnels` is mounted read-only so tunnel tokens are available inside the container.
 
 ## Updates without data loss
 
@@ -109,10 +115,11 @@ The kubo image comes with:
 - **Go 1.24**
 - **GitHub CLI** (gh)
 - **Build essentials** (gcc, pkg-config, libssl-dev, libsqlite3-dev)
+- **Cloudflared** — expose dev servers via Cloudflare Tunnels
 - **Terminal tools**: fzf, ripgrep, fd, bat, eza, jq, htop, tmux
 - **Zsh** with oh-my-zsh, autosuggestions, and syntax highlighting
 
-Your host `~/.ssh`, `~/.config/gh`, and git identity are passed through (read-only where appropriate).
+Your host `~/.ssh`, `~/.config/gh`, `~/.config/tunnels`, and git identity are passed through.
 
 ## Commands
 

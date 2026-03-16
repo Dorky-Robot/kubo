@@ -505,7 +505,10 @@ impl Container {
             }
 
             // Read-only mounts
-            let ro_mounts: &[(&str, &str)] = &[(".ssh", "/home/dev/.ssh")];
+            let ro_mounts: &[(&str, &str)] = &[
+                (".ssh", "/home/dev/.ssh"),
+                (".config/tunnels", "/home/dev/.config/tunnels"),
+            ];
 
             // Read-write mounts — katulong uploads need to be writable so
             // the clipboard bridge can share images between host and container.

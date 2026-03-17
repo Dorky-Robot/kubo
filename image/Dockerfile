@@ -7,6 +7,11 @@ ENV LANG=en_US.UTF-8
 ENV LC_ALL=en_US.UTF-8
 ENV TERM=xterm-256color
 
+# ── Locale (set up first to avoid perl warnings during apt installs) ─
+RUN apt-get update && apt-get install -y --no-install-recommends locales \
+    && sed -i '/en_US.UTF-8/s/^# //' /etc/locale.gen && locale-gen \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
 # ── System packages (minimal) ─────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # build essentials
@@ -16,13 +21,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     zsh tmux jq htop less \
     # libs for rust crates
     libssl-dev libsqlite3-dev \
-    # locale
-    locales \
     # clipboard (for katulong image paste → Claude Code via xclip + Xvfb)
     xclip xvfb \
     # misc
     unzip file sudo procps \
-    && sed -i '/en_US.UTF-8/s/^# //' /etc/locale.gen && locale-gen \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # ── Modern CLI tools (static binaries, no apt bloat) ──────────────
@@ -64,11 +66,12 @@ RUN curl -fsSL https://fnm.vercel.app/install | bash -s -- --install-dir /usr/lo
     && /usr/local/fnm/fnm install 22 \
     && /usr/local/fnm/fnm default 22 \
     && /usr/local/fnm/fnm alias default 22 \
-    && npm install -g https://github.com/Dorky-Robot/yolo.git
+    && npm config set update-notifier false \
+    && npm install -g https://github.com/Dorky-Robot/yolo.git 2>&1 | grep -v "^npm notice"
 
 # ── Katulong (web terminal) ──────────────────────────────────────
-ARG KATULONG_VERSION=0.27.0
-RUN curl -fsSL https://raw.githubusercontent.com/dorky-robot/katulong/main/install.sh | sh
+ARG KATULONG_VERSION=0.28.1
+RUN curl -fsSL https://raw.githubusercontent.com/dorky-robot/katulong/main/install.sh | sh 2>&1 | grep -v "husky"
 
 # ── Go ────────────────────────────────────────────────────────────
 ENV PATH="/usr/local/go/bin:${PATH}"

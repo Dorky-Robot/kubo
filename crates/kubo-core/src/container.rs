@@ -107,12 +107,20 @@ impl Container {
         })
     }
 
-    /// Create a container from a single directory path (legacy convenience).
+    /// Create a container from a single directory path.
     /// The container name is derived from the directory name.
+    /// The directory is mounted directly at /work so files are immediately visible.
     pub fn from_path(path: &Path) -> Result<Self, KuboError> {
         let canonical = path
             .canonicalize()
             .map_err(|e| KuboError::InvalidPath(format!("{}: {e}", path.display())))?;
+
+        if !canonical.is_dir() {
+            return Err(KuboError::InvalidPath(format!(
+                "{} is not a directory",
+                canonical.display()
+            )));
+        }
 
         let dir_name = canonical
             .file_name()
@@ -120,7 +128,13 @@ impl Container {
             .ok_or_else(|| KuboError::InvalidPath("cannot determine directory name".into()))?
             .to_string();
 
-        Self::new(&dir_name, &[canonical])
+        Ok(Self {
+            name: format!("kubo-{dir_name}"),
+            mounts: vec![Mount {
+                host_path: canonical,
+                container_path: "/work".to_string(),
+            }],
+        })
     }
 
     /// Load an existing container's mounts from its Docker labels.
@@ -472,17 +486,22 @@ impl Container {
         // Working directory
         args.extend(["-w".to_string(), "/work".to_string()]);
 
-        // Persistent named volumes — survive container recreate/update.
-        // Home volume: preserves ~/.claude, ~/.local, shell history, configs.
-        // Work volume: preserves cloned repos and files created outside mounted dirs.
+        // Persistent home volume: preserves ~/.claude, ~/.local, shell history, configs.
         args.extend([
             "-v".to_string(),
             format!("{}:/home/dev", self.home_volume()),
-            "-v".to_string(),
-            format!("{}:/work", self.work_volume()),
         ]);
 
-        // Mount project directories (bind mounts overlay the work volume)
+        // Work volume: only used for multi-mount containers where bind mounts go to
+        // /work/<name> subdirs. Skipped when a bind mount targets /work directly,
+        // because Docker Desktop (macOS) doesn't reliably overlay bind mounts nested
+        // inside a named volume.
+        let has_direct_work_mount = self.mounts.iter().any(|m| m.container_path == "/work");
+        if !has_direct_work_mount {
+            args.extend(["-v".to_string(), format!("{}:/work", self.work_volume())]);
+        }
+
+        // Mount project directories
         for mount in &self.mounts {
             args.extend([
                 "-v".to_string(),
@@ -594,7 +613,18 @@ impl Container {
     /// Exec into the container with an interactive shell.
     pub fn exec_shell(&self) -> Result<std::process::ExitStatus, KuboError> {
         let status = Command::new("docker")
-            .args(["exec", "-it", "-u", "dev", "-e", "DISPLAY=:99", "-w", "/work", &self.name, "zsh"])
+            .args([
+                "exec",
+                "-it",
+                "-u",
+                "dev",
+                "-e",
+                "DISPLAY=:99",
+                "-w",
+                "/work",
+                &self.name,
+                "zsh",
+            ])
             .stdin(Stdio::inherit())
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())

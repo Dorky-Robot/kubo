@@ -70,7 +70,7 @@ RUN curl -fsSL https://fnm.vercel.app/install | bash -s -- --install-dir /usr/lo
     && npm install -g https://github.com/Dorky-Robot/yolo.git 2>&1 | grep -v "^npm notice"
 
 # ── Katulong (web terminal) ──────────────────────────────────────
-ARG KATULONG_VERSION=0.28.1
+ARG KATULONG_VERSION=0.30.2
 RUN curl -fsSL https://raw.githubusercontent.com/dorky-robot/katulong/main/install.sh | sh 2>&1 | grep -v "husky"
 
 # ── Go ────────────────────────────────────────────────────────────

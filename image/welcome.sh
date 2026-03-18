@@ -8,7 +8,7 @@ _kubo_welcome() {
   local R='\033[0m'          # reset
 
   print ""
-  print "  ${C}󰡨  kubo${R}"
+  print "  ${C}kubo${R}"
   print ""
 
   # ── Tool inventory ──────────────────────────────────────────────────

@@ -51,13 +51,6 @@ RUN ARCH=$(uname -m) \
     && curl -fsSL "https://github.com/dandavison/delta/releases/download/0.18.2/delta-0.18.2-${ARCH}-unknown-linux-${LIBC}.tar.gz" \
     | tar -xz -C /tmp && cp /tmp/delta-*/delta /usr/local/bin/ && rm -rf /tmp/delta-*
 
-# ── Nerd Font (JetBrains Mono — icons for prompt/tools) ──────────
-RUN FONT_V=$(curl -fsSL -o /dev/null -w '%{redirect_url}' "https://github.com/ryanoasis/nerd-fonts/releases/latest" | sed 's|.*/||') \
-    && mkdir -p /usr/share/fonts/kubo \
-    && curl -fsSL "https://github.com/ryanoasis/nerd-fonts/releases/download/${FONT_V}/JetBrainsMono.tar.xz" \
-    | tar -xJ -C /usr/share/fonts/kubo/ \
-    && rm -f /usr/share/fonts/kubo/*Windows* \
-    && fc-cache -f /usr/share/fonts/kubo/ 2>/dev/null || true
 
 # ── Rust (via rustup) ─────────────────────────────────────────────
 ENV RUSTUP_HOME=/usr/local/rustup

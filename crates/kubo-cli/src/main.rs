@@ -44,6 +44,11 @@ enum Command {
         /// Container name (e.g. kubo-myproject)
         name: String,
     },
+    /// Restart a kubo container
+    Restart {
+        /// Container name
+        name: String,
+    },
     /// Remove a kubo container
     Rm {
         /// Container name (e.g. kubo-myproject)
@@ -99,6 +104,7 @@ fn main() {
         Some(Command::Add { name, dirs, force }) => cmd_add(&name, &dirs, force),
         Some(Command::Ls) => cmd_ls(),
         Some(Command::Stop { name }) => cmd_stop(&name),
+        Some(Command::Restart { name }) => cmd_restart(&name),
         Some(Command::Rm { name, volumes }) => cmd_rm(&name, volumes),
         Some(Command::Update { name, force }) => cmd_update(&name, force),
         Some(Command::Export { name, output }) => cmd_export(&name, output.as_deref()),
@@ -423,6 +429,18 @@ fn cmd_stop(name: &str) -> Result<(), Box<dyn std::error::Error>> {
     let container = Container::load(name)?;
     container.stop()?;
     println!("Stopped {}", container.display_name());
+    Ok(())
+}
+
+fn cmd_restart(name: &str) -> Result<(), Box<dyn std::error::Error>> {
+    Container::check_docker()?;
+
+    let container = Container::load(name)?;
+    if container.is_running()? {
+        container.stop()?;
+    }
+    container.ensure_running()?;
+    eprintln!("Restarted {}", container.display_name());
     Ok(())
 }
 

@@ -51,7 +51,6 @@ RUN ARCH=$(uname -m) \
     && curl -fsSL "https://github.com/dandavison/delta/releases/download/0.18.2/delta-0.18.2-${ARCH}-unknown-linux-${LIBC}.tar.gz" \
     | tar -xz -C /tmp && cp /tmp/delta-*/delta /usr/local/bin/ && rm -rf /tmp/delta-*
 
-
 # ── Rust (via rustup) ─────────────────────────────────────────────
 ENV RUSTUP_HOME=/usr/local/rustup
 ENV CARGO_HOME=/usr/local/cargo

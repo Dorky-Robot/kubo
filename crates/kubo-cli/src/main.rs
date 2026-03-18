@@ -222,23 +222,30 @@ fn open_container(mut container: Container) -> Result<(), Box<dyn std::error::Er
     let created = container.ensure_running()?;
 
     // Check for deferred mount changes (from `kubo add` while sessions were active)
-    if let Ok(Some(pending)) = container.read_pending_mounts() {
-        let sessions = container.exec_session_count().unwrap_or(0);
-        if sessions == 0 {
-            // No other sessions — safe to apply
-            if pending != container.mounts {
-                eprintln!("Applying deferred mount changes...");
-                container.mounts = pending;
-                container.recreate()?;
+    match container.read_pending_mounts() {
+        Ok(Some(pending)) => {
+            let sessions = container.exec_session_count().unwrap_or(0);
+            if sessions == 0 {
+                // No other sessions — safe to apply
+                if pending != container.mounts {
+                    eprintln!("Applying deferred mount changes...");
+                    container.mounts = pending;
+                    container.recreate()?;
+                }
+                container.clear_pending_mounts()?;
+            } else {
+                eprintln!(
+                    "Note: pending mount changes waiting. {} other session{} must disconnect first.",
+                    sessions,
+                    if sessions == 1 { "" } else { "s" }
+                );
             }
-            container.clear_pending_mounts()?;
-        } else {
-            eprintln!(
-                "Note: pending mount changes waiting. {} other session{} must disconnect first.",
-                sessions,
-                if sessions == 1 { "" } else { "s" }
-            );
         }
+        Err(e) => {
+            eprintln!("Warning: corrupt pending-mounts file, clearing: {e}");
+            container.clear_pending_mounts()?;
+        }
+        Ok(None) => {}
     }
 
     if created {
@@ -507,6 +514,17 @@ fn cmd_refresh() -> Result<(), Box<dyn std::error::Error>> {
 
     for c in &running {
         let container = Container::load(&c.name)?;
+        let sessions = container.exec_session_count()?;
+        if sessions > 0 {
+            eprintln!(
+                "Skipping {} ({} active session{}) — stop sessions first or use `kubo update --force {}`.",
+                container.display_name(),
+                sessions,
+                if sessions == 1 { "" } else { "s" },
+                container.display_name(),
+            );
+            continue;
+        }
         eprintln!("Updating {}...", container.display_name());
         container.recreate()?;
         // Start the recreated container

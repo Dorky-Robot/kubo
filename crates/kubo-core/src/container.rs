@@ -36,6 +36,89 @@ fn git_config_get(key: &str) -> Option<String> {
     }
 }
 
+/// Append host credential mount args to a Docker `run` argument vector.
+///
+/// Mounts SSH keys, tool configs, and katulong uploads from the host home directory.
+/// Used by both `create` and `import` to ensure consistent credential passthrough.
+fn append_host_credential_args(args: &mut Vec<String>) {
+    let Some(home) = std::env::var_os("HOME") else {
+        return;
+    };
+    let home = PathBuf::from(&home);
+
+    // Read-write mounts (credentials that tools may update)
+    let rw_mounts: &[(&str, &str)] = &[(".config/gh", "/home/dev/.config/gh")];
+
+    for (src, dest) in rw_mounts {
+        let host_path = home.join(src);
+        if host_path.exists() {
+            args.extend(["-v".to_string(), format!("{}:{dest}", host_path.display())]);
+        }
+    }
+
+    // Read-only mounts — auto-detected host configs.
+    // Only mounted if they exist, so kubo works on machines
+    // that don't have all the Dorky Robot tools installed.
+    let ro_mounts: &[(&str, &str)] = &[
+        (".ssh", "/home/dev/.ssh"),
+        // Dorky Robot tool configs
+        (".config/tunnels", "/home/dev/.config/tunnels"),
+        (".config/katulong", "/home/dev/.config/katulong"),
+        (".config/yelo", "/home/dev/.config/yelo"),
+        // Cloudflared auth cert
+        (".cloudflared", "/home/dev/.cloudflared"),
+    ];
+
+    // Read-write mounts — katulong uploads need to be writable so
+    // the clipboard bridge can share images between host and container.
+    // Always create the directory so the mount is guaranteed to exist.
+    let katulong_uploads = home.join(".katulong/uploads");
+    let _ = std::fs::create_dir_all(&katulong_uploads);
+    args.extend([
+        "-v".to_string(),
+        format!("{}:/home/dev/.katulong/uploads", katulong_uploads.display()),
+    ]);
+
+    for (src, dest) in ro_mounts {
+        let host_path = home.join(src);
+        if host_path.exists() {
+            args.extend([
+                "-v".to_string(),
+                format!("{}:{dest}:ro", host_path.display()),
+            ]);
+        }
+    }
+}
+
+/// Append git identity and signing key env vars to a Docker `run` argument vector.
+fn append_git_identity_args(args: &mut Vec<String>) {
+    for (key, env) in &[
+        ("user.name", "GIT_AUTHOR_NAME"),
+        ("user.email", "GIT_AUTHOR_EMAIL"),
+    ] {
+        if let Some(val) = git_config_get(key) {
+            args.extend(["-e".to_string(), format!("{env}={val}")]);
+            let committer_env = env.replace("AUTHOR", "COMMITTER");
+            args.extend(["-e".to_string(), format!("{committer_env}={val}")]);
+        }
+    }
+
+    // Pass signing key path if configured
+    if let Some(key) = git_config_get("user.signingkey") {
+        let container_key = if key.starts_with('~') {
+            key.replacen('~', "/home/dev", 1)
+        } else if key.contains("/.ssh/") {
+            format!("/home/dev/.ssh/{}", key.rsplit('/').next().unwrap_or(&key))
+        } else {
+            key
+        };
+        args.extend([
+            "-e".to_string(),
+            format!("KUBO_GIT_SIGNING_KEY={container_key}"),
+        ]);
+    }
+}
+
 /// A Docker container that mounts one or more host directories for isolated development.
 pub struct Container {
     pub name: String,
@@ -310,11 +393,18 @@ impl Container {
 
     /// Force remove this container.
     fn force_remove(&self) -> Result<(), KuboError> {
-        let _ = Command::new("docker")
+        let status = Command::new("docker")
             .args(["rm", "-f", &self.name])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
-            .status();
+            .status()?;
+
+        if !status.success() {
+            return Err(KuboError::Container(format!(
+                "failed to remove container {}",
+                self.display_name()
+            )));
+        }
         Ok(())
     }
 
@@ -448,11 +538,17 @@ impl Container {
     /// Remove named Docker volumes associated with this container.
     pub fn remove_volumes(&self) -> Result<(), KuboError> {
         for vol in [self.home_volume(), self.work_volume()] {
-            let _ = Command::new("docker")
+            let status = Command::new("docker")
                 .args(["volume", "rm", "-f", &vol])
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
-                .status();
+                .status()?;
+
+            if !status.success() {
+                return Err(KuboError::Container(format!(
+                    "failed to remove volume {vol}"
+                )));
+            }
         }
         Ok(())
     }
@@ -509,82 +605,9 @@ impl Container {
             ]);
         }
 
-        // Mount host credentials
-        if let Some(home) = std::env::var_os("HOME") {
-            let home = PathBuf::from(&home);
-
-            // Read-write mounts (credentials that tools may update)
-            let rw_mounts: &[(&str, &str)] = &[(".config/gh", "/home/dev/.config/gh")];
-
-            for (src, dest) in rw_mounts {
-                let host_path = home.join(src);
-                if host_path.exists() {
-                    args.extend(["-v".to_string(), format!("{}:{dest}", host_path.display())]);
-                }
-            }
-
-            // Read-only mounts — auto-detected host configs.
-            // Only mounted if they exist, so kubo works on machines
-            // that don't have all the Dorky Robot tools installed.
-            let ro_mounts: &[(&str, &str)] = &[
-                (".ssh", "/home/dev/.ssh"),
-                // Dorky Robot tool configs
-                (".config/tunnels", "/home/dev/.config/tunnels"),
-                (".config/katulong", "/home/dev/.config/katulong"),
-                (".config/yelo", "/home/dev/.config/yelo"),
-                // Cloudflared auth cert
-                (".cloudflared", "/home/dev/.cloudflared"),
-            ];
-
-            // Read-write mounts — katulong uploads need to be writable so
-            // the clipboard bridge can share images between host and container.
-            // Always create the directory so the mount is guaranteed to exist
-            // (previously conditional, causing images uploaded after container
-            // creation to be unreachable inside the container).
-            let katulong_uploads = home.join(".katulong/uploads");
-            let _ = std::fs::create_dir_all(&katulong_uploads);
-            args.extend([
-                "-v".to_string(),
-                format!("{}:/home/dev/.katulong/uploads", katulong_uploads.display()),
-            ]);
-
-            for (src, dest) in ro_mounts {
-                let host_path = home.join(src);
-                if host_path.exists() {
-                    args.extend([
-                        "-v".to_string(),
-                        format!("{}:{dest}:ro", host_path.display()),
-                    ]);
-                }
-            }
-        }
-
-        // Pass git identity
-        for (key, env) in &[
-            ("user.name", "GIT_AUTHOR_NAME"),
-            ("user.email", "GIT_AUTHOR_EMAIL"),
-        ] {
-            if let Some(val) = git_config_get(key) {
-                args.extend(["-e".to_string(), format!("{env}={val}")]);
-                let committer_env = env.replace("AUTHOR", "COMMITTER");
-                args.extend(["-e".to_string(), format!("{committer_env}={val}")]);
-            }
-        }
-
-        // Pass signing key path if configured
-        if let Some(key) = git_config_get("user.signingkey") {
-            let container_key = if key.starts_with('~') {
-                key.replacen('~', "/home/dev", 1)
-            } else if key.contains("/.ssh/") {
-                format!("/home/dev/.ssh/{}", key.rsplit('/').next().unwrap_or(&key))
-            } else {
-                key
-            };
-            args.extend([
-                "-e".to_string(),
-                format!("KUBO_GIT_SIGNING_KEY={container_key}"),
-            ]);
-        }
+        // Mount host credentials and pass git identity
+        append_host_credential_args(&mut args);
+        append_git_identity_args(&mut args);
 
         args.push(IMAGE.to_string());
 
@@ -895,41 +918,9 @@ impl Container {
             ]);
         }
 
-        // Mount host credentials (same as create)
-        if let Some(home) = std::env::var_os("HOME") {
-            let home = PathBuf::from(&home);
-
-            let rw_mounts: &[(&str, &str)] = &[(".config/gh", "/home/dev/.config/gh")];
-            for (src, dest) in rw_mounts {
-                let host_path = home.join(src);
-                if host_path.exists() {
-                    args.extend(["-v".to_string(), format!("{}:{dest}", host_path.display())]);
-                }
-            }
-
-            let ro_mounts: &[(&str, &str)] = &[(".ssh", "/home/dev/.ssh")];
-            for (src, dest) in ro_mounts {
-                let host_path = home.join(src);
-                if host_path.exists() {
-                    args.extend([
-                        "-v".to_string(),
-                        format!("{}:{dest}:ro", host_path.display()),
-                    ]);
-                }
-            }
-        }
-
-        // Git identity
-        for (key, env) in &[
-            ("user.name", "GIT_AUTHOR_NAME"),
-            ("user.email", "GIT_AUTHOR_EMAIL"),
-        ] {
-            if let Some(val) = git_config_get(key) {
-                args.extend(["-e".to_string(), format!("{env}={val}")]);
-                let committer_env = env.replace("AUTHOR", "COMMITTER");
-                args.extend(["-e".to_string(), format!("{committer_env}={val}")]);
-            }
-        }
+        // Mount host credentials and pass git identity
+        append_host_credential_args(&mut args);
+        append_git_identity_args(&mut args);
 
         args.push(imported_image.clone());
         // Keep the container alive

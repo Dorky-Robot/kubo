@@ -27,23 +27,30 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     unzip file sudo procps \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# ── Modern CLI tools (static binaries, no apt bloat) ──────────────
-RUN ARCH=$([ "$TARGETARCH" = "arm64" ] && echo "aarch64" || echo "x86_64") \
-    # ripgrep
-    && curl -fsSL "https://github.com/BurntSushi/ripgrep/releases/download/15.1.0/ripgrep-15.1.0-${ARCH}-unknown-linux-musl.tar.gz" \
+# ── Modern CLI tools (always latest, resolved at build time) ─────
+# Helper: resolve latest GitHub release tag via redirect
+RUN latest() { curl -fsSL -o /dev/null -w '%{redirect_url}' "https://github.com/$1/releases/latest" | sed 's|.*/||'; } \
+    && ARCH=$([ "$TARGETARCH" = "arm64" ] && echo "aarch64" || echo "x86_64") \
+    # ripgrep (tag format: 15.x.x, no v prefix)
+    && RG_V=$(latest BurntSushi/ripgrep) \
+    && curl -fsSL "https://github.com/BurntSushi/ripgrep/releases/download/${RG_V}/ripgrep-${RG_V}-${ARCH}-unknown-linux-musl.tar.gz" \
     | tar -xz -C /tmp && cp /tmp/ripgrep-*/rg /usr/local/bin/ && rm -rf /tmp/ripgrep-* \
     # fd
-    && curl -fsSL "https://github.com/sharkdp/fd/releases/download/v10.4.2/fd-v10.4.2-${ARCH}-unknown-linux-musl.tar.gz" \
+    && FD_V=$(latest sharkdp/fd) \
+    && curl -fsSL "https://github.com/sharkdp/fd/releases/download/${FD_V}/fd-${FD_V}-${ARCH}-unknown-linux-musl.tar.gz" \
     | tar -xz -C /tmp && cp /tmp/fd-*/fd /usr/local/bin/ && rm -rf /tmp/fd-* \
     # bat
-    && curl -fsSL "https://github.com/sharkdp/bat/releases/download/v0.26.1/bat-v0.26.1-${ARCH}-unknown-linux-musl.tar.gz" \
+    && BAT_V=$(latest sharkdp/bat) \
+    && curl -fsSL "https://github.com/sharkdp/bat/releases/download/${BAT_V}/bat-${BAT_V}-${ARCH}-unknown-linux-musl.tar.gz" \
     | tar -xz -C /tmp && cp /tmp/bat-*/bat /usr/local/bin/ && rm -rf /tmp/bat-* \
     # eza
-    && curl -fsSL "https://github.com/eza-community/eza/releases/download/v0.23.4/eza_${ARCH}-unknown-linux-musl.tar.gz" \
+    && EZA_V=$(latest eza-community/eza) \
+    && curl -fsSL "https://github.com/eza-community/eza/releases/download/${EZA_V}/eza_${ARCH}-unknown-linux-musl.tar.gz" \
     | tar -xz -C /tmp && cp /tmp/eza /usr/local/bin/ && rm -rf /tmp/eza \
-    # fzf
+    # fzf (filename strips v prefix)
+    && FZF_V=$(latest junegunn/fzf) \
     && FZF_ARCH=$([ "$TARGETARCH" = "arm64" ] && echo "arm64" || echo "amd64") \
-    && curl -fsSL "https://github.com/junegunn/fzf/releases/download/v0.70.0/fzf-0.70.0-linux_${FZF_ARCH}.tar.gz" \
+    && curl -fsSL "https://github.com/junegunn/fzf/releases/download/${FZF_V}/fzf-${FZF_V#v}-linux_${FZF_ARCH}.tar.gz" \
     | tar -xz -C /usr/local/bin/
 
 # ── Rust (via rustup) ─────────────────────────────────────────────
@@ -70,23 +77,24 @@ RUN curl -fsSL https://fnm.vercel.app/install | bash -s -- --install-dir /usr/lo
     && npm install -g https://github.com/Dorky-Robot/yolo.git 2>&1 | grep -v "^npm notice"
 
 # ── Katulong (web terminal) ──────────────────────────────────────
-ARG KATULONG_VERSION=0.30.3
 RUN curl -fsSL https://raw.githubusercontent.com/dorky-robot/katulong/main/install.sh | sh 2>&1 | grep -v "husky"
 
-# ── Go ────────────────────────────────────────────────────────────
+# ── Go (latest stable) ───────────────────────────────────────────
 ENV PATH="/usr/local/go/bin:${PATH}"
 
-RUN GOARCH=$([ "$TARGETARCH" = "arm64" ] && echo "arm64" || echo "amd64") \
-    && curl -fsSL "https://go.dev/dl/go1.26.1.linux-${GOARCH}.tar.gz" | tar -C /usr/local -xz
+RUN GO_V=$(curl -fsSL 'https://go.dev/dl/?mode=json' | jq -r '.[0].version') \
+    && GOARCH=$([ "$TARGETARCH" = "arm64" ] && echo "arm64" || echo "amd64") \
+    && curl -fsSL "https://go.dev/dl/${GO_V}.linux-${GOARCH}.tar.gz" | tar -C /usr/local -xz
 
 # ── Cloudflared (for tunnels / staging) ───────────────────────────
 RUN CF_ARCH=$(uname -m | sed 's/aarch64/arm64/' | sed 's/x86_64/amd64/') \
     && curl -fsSL "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${CF_ARCH}" -o /usr/local/bin/cloudflared \
     && chmod +x /usr/local/bin/cloudflared
 
-# ── GitHub CLI ────────────────────────────────────────────────────
-RUN GH_ARCH=$([ "$TARGETARCH" = "arm64" ] && echo "arm64" || echo "amd64") \
-    && curl -fsSL "https://github.com/cli/cli/releases/download/v2.88.1/gh_2.88.1_linux_${GH_ARCH}.tar.gz" \
+# ── GitHub CLI (latest) ──────────────────────────────────────────
+RUN GH_V=$(curl -fsSL -o /dev/null -w '%{redirect_url}' "https://github.com/cli/cli/releases/latest" | sed 's|.*/||') \
+    && GH_ARCH=$([ "$TARGETARCH" = "arm64" ] && echo "arm64" || echo "amd64") \
+    && curl -fsSL "https://github.com/cli/cli/releases/download/${GH_V}/gh_${GH_V#v}_linux_${GH_ARCH}.tar.gz" \
     | tar -xz -C /tmp && cp /tmp/gh_*/bin/gh /usr/local/bin/ && rm -rf /tmp/gh_*
 
 # ── Dev user (non-root with sudo) ────────────────────────────────

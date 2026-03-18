@@ -1,5 +1,7 @@
 # kubo
 
+[![Discord](https://img.shields.io/discord/1483879594619568291?color=5865F2&label=Discord&logo=discord&logoColor=white)](https://discord.gg/QSdjPhbU)
+
 Run Claude Code with full autonomy in an isolated container. No risk to your host system.
 
 ```

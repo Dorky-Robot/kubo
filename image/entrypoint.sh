@@ -18,7 +18,7 @@ if [ ! -f /home/dev/.kubo-initialized ]; then
 elif [ -d "$SKEL" ]; then
     # Upgrade — refresh system-managed files only
     # These are files kubo controls that should track the image version.
-    for f in .zshrc .oh-my-zsh; do
+    for f in .zshrc .oh-my-zsh .tmux.conf .vimrc; do
         if [ -e "$SKEL/$f" ]; then
             rm -rf "/home/dev/$f"
             cp -a "$SKEL/$f" "/home/dev/$f"
@@ -55,6 +55,23 @@ fi
 
 git config --global push.autoSetupRemote true
 git config --global core.editor "vi"
+
+# ── Delta (pretty diffs) ─────────────────────────────────────────
+if command -v delta &>/dev/null; then
+    git config --global core.pager delta
+    git config --global interactive.diffFilter 'delta --color-only'
+    git config --global delta.navigate true
+    git config --global delta.line-numbers true
+    git config --global delta.syntax-theme none
+    git config --global delta.file-style 'bold 103'
+    git config --global delta.hunk-header-style 'omit'
+    git config --global delta.minus-style '131'
+    git config --global delta.plus-style '108'
+    git config --global delta.line-numbers-minus-style '131'
+    git config --global delta.line-numbers-plus-style '108'
+    git config --global delta.line-numbers-zero-style '240'
+    git config --global merge.conflictStyle zdiff3
+fi
 
 # ── Virtual X display for clipboard (xclip) ──────────────────────
 # Katulong uses xclip to bridge images from remote devices to the

@@ -51,7 +51,19 @@ RUN latest() { curl -fsSL -o /dev/null -w '%{redirect_url}' "https://github.com/
     && FZF_V=$(latest junegunn/fzf) \
     && FZF_ARCH=$([ "$TARGETARCH" = "arm64" ] && echo "arm64" || echo "amd64") \
     && curl -fsSL "https://github.com/junegunn/fzf/releases/download/${FZF_V}/fzf-${FZF_V#v}-linux_${FZF_ARCH}.tar.gz" \
-    | tar -xz -C /usr/local/bin/
+    | tar -xz -C /usr/local/bin/ \
+    # delta (git-delta)
+    && DELTA_V=$(latest dandavison/delta) \
+    && curl -fsSL "https://github.com/dandavison/delta/releases/download/${DELTA_V}/delta-${DELTA_V}-${ARCH}-unknown-linux-musl.tar.gz" \
+    | tar -xz -C /tmp && cp /tmp/delta-*/delta /usr/local/bin/ && rm -rf /tmp/delta-*
+
+# ── Nerd Font (JetBrains Mono — icons for prompt/tools) ──────────
+RUN FONT_V=$(curl -fsSL -o /dev/null -w '%{redirect_url}' "https://github.com/ryanoasis/nerd-fonts/releases/latest" | sed 's|.*/||') \
+    && mkdir -p /usr/share/fonts/kubo \
+    && curl -fsSL "https://github.com/ryanoasis/nerd-fonts/releases/download/${FONT_V}/JetBrainsMono.tar.xz" \
+    | tar -xJ -C /usr/share/fonts/kubo/ \
+    && rm -f /usr/share/fonts/kubo/*Windows* \
+    && fc-cache -f /usr/share/fonts/kubo/ 2>/dev/null || true
 
 # ── Rust (via rustup) ─────────────────────────────────────────────
 ENV RUSTUP_HOME=/usr/local/rustup
@@ -113,8 +125,11 @@ RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master
     && git clone --depth 1 https://github.com/zsh-users/zsh-autosuggestions ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-autosuggestions \
     && git clone --depth 1 https://github.com/zsh-users/zsh-syntax-highlighting ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting
 
-# ── Zsh config ───────────────────────────────────────────────────
+# ── Shell & editor config ────────────────────────────────────────
 COPY --chown=dev:dev zshrc /home/dev/.zshrc
+COPY --chown=dev:dev kubo.zsh-theme /home/dev/.oh-my-zsh/custom/themes/kubo.zsh-theme
+COPY --chown=dev:dev tmux.conf /home/dev/.tmux.conf
+COPY --chown=dev:dev vimrc /home/dev/.vimrc
 
 # ── Clipboard bridge (for katulong image paste) ──────────────────
 # DISPLAY must be set via ENV (not just entrypoint export) so that
@@ -126,6 +141,10 @@ ENV DISPLAY=:99
 COPY pbpaste pbcopy clip /usr/local/bin/
 USER root
 RUN chmod +x /usr/local/bin/pbpaste /usr/local/bin/pbcopy /usr/local/bin/clip
+
+# ── Welcome banner ──────────────────────────────────────────────
+RUN mkdir -p /usr/local/lib/kubo
+COPY welcome.sh /usr/local/lib/kubo/welcome.sh
 
 # ── Entrypoint (configures git from env vars) ────────────────────
 COPY entrypoint.sh /usr/local/bin/kubo-entrypoint

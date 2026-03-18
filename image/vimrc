@@ -1,0 +1,52 @@
+" kubo vim — twilight overrides on slate
+" ─────────────────────────────────────────────────────────────────────
+
+set nocompatible
+syntax on
+colorscheme slate
+
+" ── Display ──────────────────────────────────────────────────────────
+set number
+set relativenumber
+set cursorline
+set laststatus=2
+set ruler
+set showcmd
+set showmatch
+set wildmenu
+set scrolloff=5
+set signcolumn=yes
+
+" ── Search ───────────────────────────────────────────────────────────
+set hlsearch
+set incsearch
+set ignorecase
+set smartcase
+
+" ── Indent ───────────────────────────────────────────────────────────
+set autoindent
+set smartindent
+set expandtab
+set tabstop=4
+set shiftwidth=4
+
+" ── Behavior ─────────────────────────────────────────────────────────
+set backspace=indent,eol,start
+set hidden
+set mouse=a
+set encoding=utf-8
+set ttimeoutlen=10
+
+" ── Twilight color overrides (on top of slate) ───────────────────────
+highlight LineNr        ctermfg=240  ctermbg=NONE
+highlight CursorLineNr  ctermfg=103  ctermbg=NONE  cterm=bold
+highlight CursorLine    ctermbg=235  cterm=NONE
+highlight StatusLine    ctermfg=103  ctermbg=235   cterm=NONE
+highlight StatusLineNC  ctermfg=245  ctermbg=235   cterm=NONE
+highlight Visual        ctermbg=238
+highlight Search        ctermfg=235  ctermbg=143
+highlight IncSearch     ctermfg=235  ctermbg=131
+highlight Pmenu         ctermfg=245  ctermbg=236
+highlight PmenuSel      ctermfg=235  ctermbg=103
+highlight Comment       ctermfg=245
+highlight SignColumn    ctermbg=NONE

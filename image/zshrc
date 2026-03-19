@@ -36,6 +36,7 @@ alias gd='git diff'
 alias gl='git log --oneline -20'
 alias ..='cd ..'
 alias ...='cd ../..'
+alias kubo-help='source /usr/local/lib/kubo/welcome.sh'
 
 # ── fzf (twilight colors) ──────────────────────────────────────────
 export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow --exclude .git'

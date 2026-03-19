@@ -18,10 +18,16 @@ if [ ! -f /home/dev/.kubo-initialized ]; then
 elif [ -d "$SKEL" ]; then
     # Upgrade — refresh system-managed files only
     # These are files kubo controls that should track the image version.
+    # Use rsync-style delete+copy to handle permission issues with git pack files.
     for f in .zshrc .oh-my-zsh .tmux.conf .vimrc; do
         if [ -e "$SKEL/$f" ]; then
-            rm -rf "/home/dev/$f"
-            cp -a "$SKEL/$f" "/home/dev/$f"
+            rm -rf "/home/dev/$f" 2>/dev/null
+            # If rm failed (permission issues), try with find to remove contents first
+            if [ -e "/home/dev/$f" ]; then
+                find "/home/dev/$f" -mindepth 1 -delete 2>/dev/null
+                rmdir "/home/dev/$f" 2>/dev/null
+            fi
+            cp -a "$SKEL/$f" "/home/dev/$f" 2>/dev/null || cp -r "$SKEL/$f" "/home/dev/$f"
         fi
     done
     # Ensure new tools from the image are available

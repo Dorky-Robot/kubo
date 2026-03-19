@@ -1,4 +1,4 @@
-# kubo — flat twilight prompt, plain ASCII (no nerd fonts)
+# kubo — two-line prompt, plain ASCII
 # twilight palette: dusty lavender (103), warm sand (143), muted sage (108),
 #                   soft rose (131), quiet gray (245), deep mute (59)
 
@@ -14,9 +14,12 @@ zstyle ':vcs_info:git:*' actionformats ' %F{103}%b%f %F{131}%a%f%u%c'
 
 precmd() {
   vcs_info
-  print -Pn "\e]0;kubo: %~\a"
+  print -Pn "\e]0;kubo:${KUBO_NAME:-kubo} %~\a"
 }
 
-# flat prompt: dir branch >
-PROMPT='%F{103}%2~%f${vcs_info_msg_0_} %F{245}>%f '
+# two-line prompt:
+#   kubo:name  path branch*
+#   >
+PROMPT='%F{59}kubo:${KUBO_NAME:-kubo}%f  %F{103}%~%f${vcs_info_msg_0_}
+%F{245}>%f '
 RPROMPT='%(?..%F{131}%?%f)'

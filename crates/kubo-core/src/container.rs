@@ -609,6 +609,12 @@ impl Container {
         append_host_credential_args(&mut args);
         append_git_identity_args(&mut args);
 
+        // Pass kubo name so the prompt can show it
+        args.extend([
+            "-e".to_string(),
+            format!("KUBO_NAME={}", self.display_name()),
+        ]);
+
         args.push(IMAGE.to_string());
 
         let status = Command::new("docker")
@@ -635,6 +641,7 @@ impl Container {
 
     /// Exec into the container with an interactive shell.
     pub fn exec_shell(&self) -> Result<std::process::ExitStatus, KuboError> {
+        let kubo_name_env = format!("KUBO_NAME={}", self.display_name());
         let status = Command::new("docker")
             .args([
                 "exec",
@@ -643,6 +650,8 @@ impl Container {
                 "dev",
                 "-e",
                 "DISPLAY=:99",
+                "-e",
+                &kubo_name_env,
                 "-w",
                 "/work",
                 &self.name,

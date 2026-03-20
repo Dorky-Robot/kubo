@@ -609,10 +609,12 @@ impl Container {
         append_host_credential_args(&mut args);
         append_git_identity_args(&mut args);
 
-        // Pass kubo name so the prompt can show it
+        // Pass kubo name and image version so prompt/entrypoint can use them
         args.extend([
             "-e".to_string(),
             format!("KUBO_NAME={}", self.display_name()),
+            "-e".to_string(),
+            format!("KUBO_IMAGE_VERSION={}", crate::image::version()),
         ]);
 
         args.push(IMAGE.to_string());

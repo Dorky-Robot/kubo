@@ -2,6 +2,8 @@
 # kubo container entrypoint — initialize persistent home, configure git
 
 SKEL=/etc/skel.kubo
+VERSION_FILE=/home/dev/.kubo-version
+IMAGE_VERSION="${KUBO_IMAGE_VERSION:-unknown}"
 
 # ── Persistent home volume initialization ────────────────────────
 # When /home/dev is backed by a named volume, it starts empty on first
@@ -9,32 +11,39 @@ SKEL=/etc/skel.kubo
 # (new image, existing volume), we refresh system-managed files while
 # preserving user data like ~/.claude, cloned repos, shell history, etc.
 
-if [ ! -f /home/dev/.kubo-initialized ]; then
-    # First run — copy all defaults from the image skeleton
-    if [ -d "$SKEL" ]; then
-        cp -a "$SKEL"/. /home/dev/
-    fi
-    touch /home/dev/.kubo-initialized
-elif [ -d "$SKEL" ]; then
-    # Upgrade — refresh system-managed files only
+refresh_system_files() {
     # These are files kubo controls that should track the image version.
-    # Use rsync-style delete+copy to handle permission issues with git pack files.
     for f in .zshrc .oh-my-zsh .tmux.conf .vimrc; do
         if [ -e "$SKEL/$f" ]; then
+            # Remove old version completely
+            chmod -R u+w "/home/dev/$f" 2>/dev/null
             rm -rf "/home/dev/$f" 2>/dev/null
-            # If rm failed (permission issues), try with find to remove contents first
-            if [ -e "/home/dev/$f" ]; then
-                find "/home/dev/$f" -mindepth 1 -delete 2>/dev/null
-                rmdir "/home/dev/$f" 2>/dev/null
-            fi
-            cp -a "$SKEL/$f" "/home/dev/$f" 2>/dev/null || cp -r "$SKEL/$f" "/home/dev/$f"
+            # Copy fresh from skeleton
+            cp -a "$SKEL/$f" "/home/dev/$f"
         fi
     done
+    # Ensure custom theme is in place
+    if [ -e "$SKEL/.oh-my-zsh/custom/themes/kubo.zsh-theme" ]; then
+        mkdir -p /home/dev/.oh-my-zsh/custom/themes
+        cp -a "$SKEL/.oh-my-zsh/custom/themes/kubo.zsh-theme" /home/dev/.oh-my-zsh/custom/themes/
+    fi
     # Ensure new tools from the image are available
     if [ -d "$SKEL/.local/bin" ]; then
         mkdir -p /home/dev/.local/bin
         cp -n "$SKEL/.local/bin"/* /home/dev/.local/bin/ 2>/dev/null || true
     fi
+    echo "$IMAGE_VERSION" > "$VERSION_FILE"
+}
+
+if [ ! -f "$VERSION_FILE" ]; then
+    # First run — copy all defaults from the image skeleton
+    if [ -d "$SKEL" ]; then
+        cp -a "$SKEL"/. /home/dev/
+    fi
+    echo "$IMAGE_VERSION" > "$VERSION_FILE"
+elif [ -d "$SKEL" ] && [ "$(cat "$VERSION_FILE" 2>/dev/null)" != "$IMAGE_VERSION" ]; then
+    # Image version changed — refresh system files
+    refresh_system_files
 fi
 
 # ── Git configuration ────────────────────────────────────────────

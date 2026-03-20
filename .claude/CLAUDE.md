@@ -17,7 +17,7 @@ kubo-cli (CLI interface: "kubo ./myproject")
 
 - **Simple first.** `kubo .` should just work — mount the current dir and drop into a shell.
 - **Containers are persistent.** A kubo container sticks around (stopped) until you explicitly remove it. Re-running `kubo <dir>` reattaches.
-- **Host dir is /work.** The mounted directory appears at `/work` inside the container.
+- **Dirs are subdirs of /work.** Mounted directories always appear at `/work/<dir_name>` — never mounted directly to `/work`, even when there's only one.
 - **Docker labels for state.** No external database — container labels (`managed-by=kubo`, `kubo.host-path`) are the source of truth.
 - **Shell out to docker.** MVP uses `docker` CLI, not a Rust Docker library. Keep it simple.
 

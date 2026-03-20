@@ -192,7 +192,7 @@ impl Container {
 
     /// Create a container from a single directory path.
     /// The container name is derived from the directory name.
-    /// The directory is mounted directly at /work so files are immediately visible.
+    /// The directory is mounted at /work/<dir_name> as a subdirectory.
     pub fn from_path(path: &Path) -> Result<Self, KuboError> {
         let canonical = path
             .canonicalize()
@@ -215,7 +215,7 @@ impl Container {
             name: format!("kubo-{dir_name}"),
             mounts: vec![Mount {
                 host_path: canonical,
-                container_path: "/work".to_string(),
+                container_path: format!("/work/{dir_name}"),
             }],
         })
     }
@@ -287,17 +287,6 @@ impl Container {
         // Skip if already mounted
         if self.mounts.iter().any(|m| m.host_path == canonical) {
             return Ok(());
-        }
-
-        // If we had a single mount at /work, migrate to /work/<name> layout
-        if self.mounts.len() == 1 && self.mounts[0].container_path == "/work" {
-            let old_name = self.mounts[0]
-                .host_path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("project")
-                .to_string();
-            self.mounts[0].container_path = format!("/work/{old_name}");
         }
 
         self.mounts.push(Mount {
@@ -588,14 +577,8 @@ impl Container {
             format!("{}:/home/dev", self.home_volume()),
         ]);
 
-        // Work volume: only used for multi-mount containers where bind mounts go to
-        // /work/<name> subdirs. Skipped when a bind mount targets /work directly,
-        // because Docker Desktop (macOS) doesn't reliably overlay bind mounts nested
-        // inside a named volume.
-        let has_direct_work_mount = self.mounts.iter().any(|m| m.container_path == "/work");
-        if !has_direct_work_mount {
-            args.extend(["-v".to_string(), format!("{}:/work", self.work_volume())]);
-        }
+        // Work volume: all mounts go to /work/<name> subdirs, so this is always needed.
+        args.extend(["-v".to_string(), format!("{}:/work", self.work_volume())]);
 
         // Mount project directories
         for mount in &self.mounts {

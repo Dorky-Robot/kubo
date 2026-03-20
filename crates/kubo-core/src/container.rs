@@ -574,9 +574,9 @@ impl Container {
         // Generous memory defaults for dev work (Claude Code needs headroom)
         args.extend([
             "--memory".to_string(),
-            "6g".to_string(),
+            "8g".to_string(),
             "--memory-swap".to_string(),
-            "12g".to_string(),
+            "16g".to_string(),
         ]);
 
         // Working directory
@@ -909,9 +909,9 @@ impl Container {
             "--network".to_string(),
             "host".to_string(),
             "--memory".to_string(),
-            "6g".to_string(),
+            "8g".to_string(),
             "--memory-swap".to_string(),
-            "12g".to_string(),
+            "16g".to_string(),
             "-w".to_string(),
             "/work".to_string(),
             // The imported image has no CMD/ENTRYPOINT, so we need to set one

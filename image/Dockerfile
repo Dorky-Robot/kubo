@@ -91,6 +91,10 @@ RUN CF_ARCH=$(uname -m | sed 's/aarch64/arm64/' | sed 's/x86_64/amd64/') \
     && curl -fsSL "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${CF_ARCH}" -o /usr/local/bin/cloudflared \
     && chmod +x /usr/local/bin/cloudflared
 
+# ── Tunnels (Cloudflare tunnel TUI/CLI) ──────────────────────────
+RUN cargo install --git https://github.com/Dorky-Robot/tunnels.git --locked \
+    && cp /usr/local/cargo/bin/tunnels /usr/local/bin/tunnels
+
 # ── GitHub CLI ────────────────────────────────────────────────────
 RUN GH_ARCH=$(uname -m | sed 's/aarch64/arm64/' | sed 's/x86_64/amd64/') \
     && curl -fsSL "https://github.com/cli/cli/releases/download/v2.88.1/gh_2.88.1_linux_${GH_ARCH}.tar.gz" \

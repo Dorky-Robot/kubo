@@ -48,7 +48,7 @@ RUN ARCH=$(uname -m) \
     && curl -fsSL "https://github.com/junegunn/fzf/releases/download/v0.70.0/fzf-0.70.0-linux_${FZF_ARCH}.tar.gz" \
     | tar -xz -C /usr/local/bin/ \
     # delta
-    && curl -fsSL "https://github.com/dandavison/delta/releases/download/0.18.2/delta-0.18.2-${ARCH}-unknown-linux-${LIBC}.tar.gz" \
+    && curl -fsSL "https://github.com/dandavison/delta/releases/download/0.19.1/delta-0.19.1-${ARCH}-unknown-linux-${LIBC}.tar.gz" \
     | tar -xz -C /tmp && cp /tmp/delta-*/delta /usr/local/bin/ && rm -rf /tmp/delta-*
 
 # ── Rust (via rustup) ─────────────────────────────────────────────
@@ -97,7 +97,7 @@ RUN cargo install --git https://github.com/Dorky-Robot/tunnels.git --locked \
 
 # ── GitHub CLI ────────────────────────────────────────────────────
 RUN GH_ARCH=$(uname -m | sed 's/aarch64/arm64/' | sed 's/x86_64/amd64/') \
-    && curl -fsSL "https://github.com/cli/cli/releases/download/v2.88.1/gh_2.88.1_linux_${GH_ARCH}.tar.gz" \
+    && curl -fsSL "https://github.com/cli/cli/releases/download/v2.89.0/gh_2.89.0_linux_${GH_ARCH}.tar.gz" \
     | tar -xz -C /tmp && cp /tmp/gh_*/bin/gh /usr/local/bin/ && rm -rf /tmp/gh_*
 
 # ── Dev user (non-root with sudo) ────────────────────────────────

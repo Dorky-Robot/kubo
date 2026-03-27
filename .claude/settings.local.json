@@ -1,0 +1,81 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(chmod:*)",
+      "Bash(did we make those changes in a worktree?)",
+      "Bash(cargo fmt:*)",
+      "Bash(cargo clippy:*)",
+      "Bash(cargo install:*)",
+      "Bash(~/.cargo/bin/kubo build:*)",
+      "Bash(grep -v \"^$\")",
+      "Bash(gh release:*)",
+      "Bash(gh run:*)",
+      "Bash(hash -r)",
+      "Bash(kubo version:*)",
+      "Bash(gh pr:*)",
+      "Bash(colima stop:*)",
+      "Bash(colima start:*)",
+      "Bash(kubo rm:*)",
+      "Bash(kubo katulong:*)",
+      "Bash(cargo build:*)",
+      "Bash(cargo test:*)"
+    ]
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -sf -X POST http://127.0.0.1:3456/api/helm/hook -H 'Content-Type: application/json' -d \"$(cat)\" &"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -sf -X POST http://127.0.0.1:3456/api/helm/hook -H 'Content-Type: application/json' -d \"$(cat)\" &"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -sf -X POST http://127.0.0.1:3456/api/helm/hook -H 'Content-Type: application/json' -d \"$(cat)\" &"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -sf -X POST http://127.0.0.1:3456/api/helm/hook -H 'Content-Type: application/json' -d \"$(cat)\" &"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -sf -X POST http://127.0.0.1:3456/api/helm/hook -H 'Content-Type: application/json' -d \"$(cat)\" &"
+          }
+        ]
+      }
+    ]
+  }
+}

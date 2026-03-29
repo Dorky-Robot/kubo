@@ -2,7 +2,7 @@
 
 ## What changed
 
-- Fix formatting (cargo fmt)
+- Build diwa's ONNX runtime from source (fixes glibc linking on bookworm-slim)
 
 ## Steps
 

@@ -20,7 +20,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # terminal
     zsh tmux jq htop less \
     # libs for rust crates
-    libssl-dev libsqlite3-dev \
+    cmake libssl-dev libsqlite3-dev \
     # clipboard (for katulong image paste → Claude Code via xclip + Xvfb)
     xclip xvfb \
     # misc
@@ -87,7 +87,7 @@ RUN GO_V=$(curl -fsSL 'https://go.dev/dl/?mode=json' | jq -r '.[0].version') \
     && curl -fsSL "https://go.dev/dl/${GO_V}.linux-${GOARCH}.tar.gz" | tar -C /usr/local -xz
 
 # ── Diwa (git history knowledge base) ─────────────────────────────
-RUN cargo install --git https://github.com/Dorky-Robot/diwa.git --locked \
+RUN ORT_STRATEGY=compile cargo install --git https://github.com/Dorky-Robot/diwa.git --locked \
     && cp /usr/local/cargo/bin/diwa /usr/local/bin/diwa
 
 # ── Cloudflared (for tunnels / staging) ───────────────────────────

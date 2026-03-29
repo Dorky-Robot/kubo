@@ -2,7 +2,7 @@
 
 ## What changed
 
-- Added `kubo upgrade` command for self-updating without Homebrew
+- Show update hint after shell exit when a newer kubo version is available
 
 ## Steps
 

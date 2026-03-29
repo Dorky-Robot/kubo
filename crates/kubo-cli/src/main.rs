@@ -1,4 +1,6 @@
 use std::path::PathBuf;
+use std::sync::mpsc;
+use std::thread;
 
 use clap::{Parser, Subcommand};
 use kubo_core::{Container, ContainerStatus};
@@ -327,7 +329,18 @@ fn open_container(mut container: Container) -> Result<(), Box<dyn std::error::Er
         eprintln!("Attaching to container: {}", container.display_name());
     }
 
+    // Check for updates in the background while the user is in the shell
+    let update_rx = spawn_update_check();
+
     let status = container.exec_shell()?;
+
+    // After the shell exits, show a hint if a newer version was found
+    if let Some(rx) = update_rx
+        && let Ok(Some(latest)) = rx.try_recv()
+    {
+        eprintln!("\n  kubo v{latest} available — run `kubo upgrade` to update\n");
+    }
+
     std::process::exit(status.code().unwrap_or(1));
 }
 
@@ -619,6 +632,84 @@ fn cmd_refresh() -> Result<(), Box<dyn std::error::Error>> {
 
     eprintln!("All containers refreshed.");
     Ok(())
+}
+
+/// Spawn a background thread to check for a newer kubo release.
+/// Returns a receiver that yields `Some(latest_version)` if an update is
+/// available, or `None` if already current. The check is skipped entirely
+/// if we already checked within the last 24 hours.
+fn spawn_update_check() -> Option<mpsc::Receiver<Option<String>>> {
+    let cache_path = dirs();
+    let cache_file = cache_path.join("update-check");
+
+    // Rate-limit: skip if checked within the last 24 hours
+    if let Ok(meta) = std::fs::metadata(&cache_file)
+        && let Ok(modified) = meta.modified()
+        && modified.elapsed().unwrap_or_default() < std::time::Duration::from_secs(86400)
+    {
+        // Still fresh — read cached result
+        if let Ok(cached) = std::fs::read_to_string(&cache_file) {
+            let latest = cached.trim().to_string();
+            let current = env!("CARGO_PKG_VERSION");
+            if !latest.is_empty() && latest != current {
+                let (tx, rx) = mpsc::channel();
+                let _ = tx.send(Some(latest));
+                return Some(rx);
+            }
+        }
+        return None;
+    }
+
+    let (tx, rx) = mpsc::channel();
+
+    thread::spawn(move || {
+        let result = (|| -> Option<String> {
+            let output = std::process::Command::new("curl")
+                .args([
+                    "-fsSL",
+                    "--connect-timeout",
+                    "3",
+                    "--max-time",
+                    "5",
+                    "https://api.github.com/repos/Dorky-Robot/kubo/releases/latest",
+                ])
+                .output()
+                .ok()?;
+
+            if !output.status.success() {
+                return None;
+            }
+
+            let body = String::from_utf8_lossy(&output.stdout);
+            let tag = body
+                .lines()
+                .find(|l| l.contains("\"tag_name\""))
+                .and_then(|l| l.split('"').nth(3))?;
+
+            let latest = tag.strip_prefix('v').unwrap_or(tag).to_string();
+
+            // Cache the result
+            let _ = std::fs::create_dir_all(&cache_path);
+            let _ = std::fs::write(&cache_file, &latest);
+
+            let current = env!("CARGO_PKG_VERSION");
+            if latest != current {
+                Some(latest)
+            } else {
+                None
+            }
+        })();
+
+        let _ = tx.send(result);
+    });
+
+    Some(rx)
+}
+
+/// kubo cache directory (~/.cache/kubo)
+fn dirs() -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    PathBuf::from(home).join(".cache").join("kubo")
 }
 
 fn cmd_upgrade() -> Result<(), Box<dyn std::error::Error>> {

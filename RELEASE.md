@@ -2,6 +2,7 @@
 
 ## What changed
 
+- Added `kubo detach` command to remove directories from a kubo
 - Added `tunnels` CLI (built from source) to the container image
 - Switched `docker build` to `docker buildx build` (fixes deprecation warning)
 - Updated delta 0.18.2 → 0.19.1
@@ -15,7 +16,7 @@ Edit `Cargo.toml` in the workspace root — change `version` under `[workspace.p
 
 ```toml
 [workspace.package]
-version = "0.5.11"
+version = "0.5.12"
 ```
 
 ### 2. Make sure it builds
@@ -30,15 +31,15 @@ cargo clippy --workspace
 
 ```bash
 git add -A
-git commit -m "0.5.11: add tunnels CLI, update delta + gh, use buildx"
-git tag v0.5.11
+git commit -m "0.5.12: add tunnels CLI, update delta + gh, use buildx"
+git tag v0.5.12
 git push origin main --tags
 ```
 
 ### 4. Create the GitHub release
 
 ```bash
-gh release create v0.5.11 --title "v0.5.11" --notes "- Add tunnels CLI to container image
+gh release create v0.5.12 --title "v0.5.12" --notes "- Add tunnels CLI to container image
 - Switch to docker buildx build
 - Update delta to 0.19.1
 - Update GitHub CLI to 2.89.0"
@@ -55,7 +56,7 @@ After the workflow completes (~5 min):
 
 ```bash
 # Check the release has all 4 assets
-gh release view v0.5.11 --repo Dorky-Robot/kubo
+gh release view v0.5.12 --repo Dorky-Robot/kubo
 
 # Check the tap was updated
 brew update && brew upgrade kubo

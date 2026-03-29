@@ -297,6 +297,31 @@ impl Container {
         Ok(())
     }
 
+    /// Remove a mount by host path. Returns an error if the path isn't mounted
+    /// or if it's the last mount (a kubo must have at least one directory).
+    pub fn remove_mount(&mut self, dir: &Path) -> Result<(), KuboError> {
+        let canonical = dir
+            .canonicalize()
+            .map_err(|e| KuboError::InvalidPath(format!("{}: {e}", dir.display())))?;
+
+        let idx = self
+            .mounts
+            .iter()
+            .position(|m| m.host_path == canonical)
+            .ok_or_else(|| {
+                KuboError::InvalidPath(format!("{} is not mounted", canonical.display()))
+            })?;
+
+        if self.mounts.len() == 1 {
+            return Err(KuboError::Container(
+                "cannot remove the last mount — use `kubo rm` to remove the container".into(),
+            ));
+        }
+
+        self.mounts.remove(idx);
+        Ok(())
+    }
+
     /// Check if Docker is available.
     pub fn check_docker() -> Result<(), KuboError> {
         let output = Command::new("docker")

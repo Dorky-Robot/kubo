@@ -37,6 +37,16 @@ enum Command {
         #[arg(long)]
         force: bool,
     },
+    /// Remove directories from an existing kubo
+    Detach {
+        /// Target kubo name
+        name: String,
+        /// Directories to remove
+        dirs: Vec<PathBuf>,
+        /// Force recreate even if there are active sessions
+        #[arg(long)]
+        force: bool,
+    },
     /// List all kubo containers
     Ls,
     /// Stop a running kubo container
@@ -102,6 +112,7 @@ fn main() {
     let result = match cli.command {
         Some(Command::New { name, dirs }) => cmd_new(&name, &dirs),
         Some(Command::Add { name, dirs, force }) => cmd_add(&name, &dirs, force),
+        Some(Command::Detach { name, dirs, force }) => cmd_detach(&name, &dirs, force),
         Some(Command::Ls) => cmd_ls(),
         Some(Command::Stop { name }) => cmd_stop(&name),
         Some(Command::Restart { name }) => cmd_restart(&name),
@@ -119,6 +130,7 @@ fn main() {
                 eprintln!("       kubo <name>                   attach to named kubo");
                 eprintln!("       kubo new <name> <dirs...>     create named kubo");
                 eprintln!("       kubo add <name> <dirs...>     add dirs to existing kubo");
+                eprintln!("       kubo detach <name> <dirs...>  remove dirs from a kubo");
                 eprintln!("       kubo ls                       list containers");
                 eprintln!("       kubo stop/rm <name>           manage containers");
                 eprintln!(
@@ -222,6 +234,54 @@ fn cmd_add(name: &str, dirs: &[PathBuf], force: bool) -> Result<(), Box<dyn std:
     // Clear any stale pending mounts from the home volume
     container.clear_pending_mounts()?;
     open_container(container)
+}
+
+fn cmd_detach(name: &str, dirs: &[PathBuf], force: bool) -> Result<(), Box<dyn std::error::Error>> {
+    if dirs.is_empty() {
+        return Err("provide at least one directory to detach".into());
+    }
+
+    Container::check_docker()?;
+
+    let mut container = Container::load(name)?;
+    for dir in dirs {
+        container.remove_mount(dir)?;
+    }
+
+    let sessions = container.exec_session_count()?;
+    if sessions > 0 && !force {
+        container.save_pending_mounts(&container.mounts)?;
+        eprintln!(
+            "{} has {} active session{}. Mount changes will apply when all sessions disconnect.",
+            container.display_name(),
+            sessions,
+            if sessions == 1 { "" } else { "s" }
+        );
+        eprintln!(
+            "Or use `kubo detach --force {} {}` to recreate now.",
+            name,
+            dirs.iter()
+                .map(|d| d.display().to_string())
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
+        return Ok(());
+    }
+
+    if sessions > 0 {
+        eprintln!(
+            "Warning: {} has {} active session{}, forcing recreate...",
+            container.display_name(),
+            sessions,
+            if sessions == 1 { "" } else { "s" }
+        );
+    }
+
+    eprintln!("Recreating {} without detached mounts...", container.display_name());
+    container.recreate()?;
+    container.clear_pending_mounts()?;
+    eprintln!("Done.");
+    Ok(())
 }
 
 fn open_container(mut container: Container) -> Result<(), Box<dyn std::error::Error>> {

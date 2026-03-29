@@ -147,6 +147,7 @@ kubo <dir>                    open dir in a container
 kubo <name>                   attach to a named kubo
 kubo new <name> <dirs...>     create a named kubo with multiple dirs
 kubo add <name> <dirs...>     add dirs to an existing kubo
+kubo detach <name> <dirs...>  remove dirs from a kubo
 kubo update <name>            rebuild image + recreate container (keeps data)
 kubo refresh                  rebuild image + update ALL containers
 kubo export <name>            export container to a .kubo archive

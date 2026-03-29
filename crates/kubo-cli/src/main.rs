@@ -277,7 +277,10 @@ fn cmd_detach(name: &str, dirs: &[PathBuf], force: bool) -> Result<(), Box<dyn s
         );
     }
 
-    eprintln!("Recreating {} without detached mounts...", container.display_name());
+    eprintln!(
+        "Recreating {} without detached mounts...",
+        container.display_name()
+    );
     container.recreate()?;
     container.clear_pending_mounts()?;
     eprintln!("Done.");

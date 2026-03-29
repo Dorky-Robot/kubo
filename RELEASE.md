@@ -2,7 +2,7 @@
 
 ## What changed
 
-- Show update hint after shell exit when a newer kubo version is available
+- Fix formatting (cargo fmt)
 
 ## Steps
 

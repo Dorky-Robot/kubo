@@ -843,11 +843,18 @@ fn is_writable(path: &std::path::Path) -> bool {
         return std::fs::OpenOptions::new().write(true).open(path).is_ok();
     }
     // If it doesn't exist, check if the parent dir is writable
-    path.parent()
-        .is_some_and(|p| std::fs::OpenOptions::new().write(true).create(true).truncate(true).open(p.join(".kubo-write-test")).map(|_| {
-            std::fs::remove_file(p.join(".kubo-write-test")).ok();
-            true
-        }).unwrap_or(false))
+    path.parent().is_some_and(|p| {
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(p.join(".kubo-write-test"))
+            .map(|_| {
+                std::fs::remove_file(p.join(".kubo-write-test")).ok();
+                true
+            })
+            .unwrap_or(false)
+    })
 }
 
 fn cmd_build(no_cache: bool) -> Result<(), Box<dyn std::error::Error>> {

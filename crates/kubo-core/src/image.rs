@@ -69,7 +69,7 @@ pub fn build_image(no_cache: bool) -> Result<(), KuboError> {
     fs::write(dir.join("pbcopy"), PBCOPY)?;
     fs::write(dir.join("clip"), CLIP)?;
 
-    let mut args = vec!["buildx", "build", "-t", IMAGE_TAG];
+    let mut args = vec!["build", "-t", IMAGE_TAG];
     if no_cache {
         args.push("--no-cache");
     }

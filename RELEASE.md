@@ -2,11 +2,7 @@
 
 ## What changed
 
-- Added `kubo detach` command to remove directories from a kubo
-- Added `tunnels` CLI (built from source) to the container image
-- Switched `docker build` to `docker buildx build` (fixes deprecation warning)
-- Updated delta 0.18.2 → 0.19.1
-- Updated GitHub CLI 2.88.1 → 2.89.0
+- Build diwa from source instead of downloading pre-built release binary (fixes glibc version mismatch on aarch64)
 
 ## Steps
 

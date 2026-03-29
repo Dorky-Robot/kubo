@@ -87,10 +87,8 @@ RUN GO_V=$(curl -fsSL 'https://go.dev/dl/?mode=json' | jq -r '.[0].version') \
     && curl -fsSL "https://go.dev/dl/${GO_V}.linux-${GOARCH}.tar.gz" | tar -C /usr/local -xz
 
 # ── Diwa (git history knowledge base) ─────────────────────────────
-RUN DIWA_ARCH=$(uname -m) \
-    && DIWA_TAG=$(curl -fsSL "https://api.github.com/repos/Dorky-Robot/diwa/releases/latest" | jq -r '.tag_name') \
-    && curl -fsSL "https://github.com/Dorky-Robot/diwa/releases/download/${DIWA_TAG}/diwa-${DIWA_ARCH}-unknown-linux-gnu.tar.gz" \
-    | tar -xz -C /tmp && install -m 755 /tmp/diwa /usr/local/bin/diwa && rm -f /tmp/diwa
+RUN cargo install --git https://github.com/Dorky-Robot/diwa.git --locked \
+    && cp /usr/local/cargo/bin/diwa /usr/local/bin/diwa
 
 # ── Cloudflared (for tunnels / staging) ───────────────────────────
 RUN CF_ARCH=$(uname -m | sed 's/aarch64/arm64/' | sed 's/x86_64/amd64/') \

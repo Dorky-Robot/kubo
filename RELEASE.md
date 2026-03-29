@@ -2,7 +2,7 @@
 
 ## What changed
 
-- Build diwa from source instead of downloading pre-built release binary (fixes glibc version mismatch on aarch64)
+- Added `kubo upgrade` command for self-updating without Homebrew
 
 ## Steps
 

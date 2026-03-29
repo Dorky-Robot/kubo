@@ -102,6 +102,8 @@ enum Command {
         #[arg(long)]
         no_cache: bool,
     },
+    /// Upgrade kubo to the latest release
+    Upgrade,
     /// Show kubo version and image info
     Version,
 }
@@ -122,6 +124,7 @@ fn main() {
         Some(Command::Import { file, name, dir }) => cmd_import(&file, name.as_deref(), &dir),
         Some(Command::Refresh) => cmd_refresh(),
         Some(Command::Build { no_cache }) => cmd_build(no_cache),
+        Some(Command::Upgrade) => cmd_upgrade(),
         Some(Command::Version) => cmd_version(),
         None => match cli.target {
             Some(target) => cmd_open(&target),
@@ -136,6 +139,7 @@ fn main() {
                 eprintln!(
                     "       kubo refresh                  rebuild image + update all containers"
                 );
+                eprintln!("       kubo upgrade                  upgrade kubo to latest release");
                 eprintln!("       kubo export <name>            export kubo to portable file");
                 eprintln!("       kubo import <file>            import kubo from file");
                 eprintln!("\nTry: kubo .");
@@ -615,6 +619,144 @@ fn cmd_refresh() -> Result<(), Box<dyn std::error::Error>> {
 
     eprintln!("All containers refreshed.");
     Ok(())
+}
+
+fn cmd_upgrade() -> Result<(), Box<dyn std::error::Error>> {
+    let current = env!("CARGO_PKG_VERSION");
+
+    // Fetch latest release tag from GitHub
+    eprintln!("Checking for updates...");
+    let output = std::process::Command::new("curl")
+        .args([
+            "-fsSL",
+            "https://api.github.com/repos/Dorky-Robot/kubo/releases/latest",
+        ])
+        .output()?;
+
+    if !output.status.success() {
+        return Err("failed to check for updates — could not reach GitHub".into());
+    }
+
+    let body = String::from_utf8_lossy(&output.stdout);
+    let tag = body
+        .lines()
+        .find(|l| l.contains("\"tag_name\""))
+        .and_then(|l| l.split('"').nth(3))
+        .ok_or("could not parse latest release tag")?
+        .to_string();
+
+    let latest = tag.strip_prefix('v').unwrap_or(&tag);
+
+    if latest == current {
+        eprintln!("Already on the latest version (v{current}).");
+        return Ok(());
+    }
+
+    eprintln!("Upgrading v{current} → v{latest}...");
+
+    // Detect platform
+    let arch = std::env::consts::ARCH;
+    let os = std::env::consts::OS;
+
+    let target = match (arch, os) {
+        ("x86_64", "linux") => "x86_64-unknown-linux-musl",
+        ("aarch64", "linux") => "aarch64-unknown-linux-musl",
+        ("x86_64", "macos") => "x86_64-apple-darwin",
+        ("aarch64", "macos") => "aarch64-apple-darwin",
+        _ => return Err(format!("unsupported platform: {arch}-{os}").into()),
+    };
+
+    let url = format!(
+        "https://github.com/Dorky-Robot/kubo/releases/download/{tag}/kubo-{tag}-{target}.tar.gz"
+    );
+
+    // Download and extract to temp dir
+    let tmpdir = std::env::temp_dir().join(format!("kubo-upgrade-{}", std::process::id()));
+    std::fs::create_dir_all(&tmpdir)?;
+
+    let tarball = tmpdir.join("kubo.tar.gz");
+    let dl = std::process::Command::new("curl")
+        .args(["-fsSL", &url, "-o"])
+        .arg(&tarball)
+        .status()?;
+
+    if !dl.success() {
+        std::fs::remove_dir_all(&tmpdir).ok();
+        return Err(format!("failed to download {url}").into());
+    }
+
+    let extract = std::process::Command::new("tar")
+        .args(["xzf"])
+        .arg(&tarball)
+        .arg("-C")
+        .arg(&tmpdir)
+        .status()?;
+
+    if !extract.success() {
+        std::fs::remove_dir_all(&tmpdir).ok();
+        return Err("failed to extract archive".into());
+    }
+
+    // Find the extracted binary
+    let extracted = tmpdir.join(format!("kubo-{tag}-{target}")).join("kubo");
+    if !extracted.exists() {
+        std::fs::remove_dir_all(&tmpdir).ok();
+        return Err("kubo binary not found in archive".into());
+    }
+
+    // Replace current binary
+    let current_exe = std::env::current_exe()?;
+    let install_dir = current_exe
+        .parent()
+        .ok_or("could not determine install directory")?;
+
+    // Check if we can write directly or need sudo
+    let dest = install_dir.join("kubo");
+    let needs_sudo = !is_writable(&dest);
+
+    if needs_sudo {
+        eprintln!("Installing to {} (requires sudo)...", install_dir.display());
+        let mv = std::process::Command::new("sudo")
+            .args(["cp", "-f"])
+            .arg(&extracted)
+            .arg(&dest)
+            .status()?;
+
+        if !mv.success() {
+            std::fs::remove_dir_all(&tmpdir).ok();
+            return Err("failed to install binary (sudo cp failed)".into());
+        }
+
+        std::process::Command::new("sudo")
+            .args(["chmod", "+x"])
+            .arg(&dest)
+            .status()?;
+    } else {
+        std::fs::copy(&extracted, &dest)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755))?;
+        }
+    }
+
+    std::fs::remove_dir_all(&tmpdir).ok();
+    eprintln!("Upgraded to v{latest}.");
+    Ok(())
+}
+
+/// Check if a path is writable by the current user.
+fn is_writable(path: &std::path::Path) -> bool {
+    // If the file exists, check if we can open it for writing
+    if path.exists() {
+        return std::fs::OpenOptions::new().write(true).open(path).is_ok();
+    }
+    // If it doesn't exist, check if the parent dir is writable
+    path.parent()
+        .is_some_and(|p| std::fs::OpenOptions::new().write(true).create(true).truncate(true).open(p.join(".kubo-write-test")).map(|_| {
+            std::fs::remove_file(p.join(".kubo-write-test")).ok();
+            true
+        }).unwrap_or(false))
 }
 
 fn cmd_build(no_cache: bool) -> Result<(), Box<dyn std::error::Error>> {

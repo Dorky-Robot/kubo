@@ -122,6 +122,7 @@ kubo refresh             # rebuild image + update ALL running containers
 
 - **[Katulong](https://github.com/Dorky-Robot/katulong)** — web terminal that lets you access your kubo sessions from any device (phone, tablet, another machine). Paste images from your device's clipboard into Claude Code sessions.
 - **[Cloudflared](https://github.com/cloudflare/cloudflared)** — expose dev servers to the internet via Cloudflare Tunnels. Start an app inside kubo and share it instantly with `cloudflared tunnel --url http://localhost:3000`.
+- **[Diwa](https://github.com/Dorky-Robot/diwa)** — turns git history into a searchable knowledge base. AI agents can query past decisions, patterns, and learnings with `diwa search repo "why..."`. Indexes are shared across kubos via the `~/.diwa` mount.
 - **[Sipag](https://github.com/Dorky-Robot/sipag)** — autonomous PR agent. Picks up GitHub issues and opens pull requests using Claude Code. Runs inside kubo so it can't damage your host.
 
 ## Host config passthrough
@@ -132,6 +133,7 @@ kubo auto-detects tool configs on your host and mounts them into the container s
 |---|---|---|
 | `~/.ssh` | Git SSH keys | read-only |
 | `~/.config/gh` | GitHub CLI auth | read-write |
+| `~/.diwa` | [Diwa](https://github.com/Dorky-Robot/diwa) knowledge base and embeddings | read-write |
 | `~/.config/tunnels` | [Tunnels](https://github.com/Dorky-Robot/tunnels) tokens and API keys | read-only |
 | `~/.config/katulong` | Katulong instance config | read-only |
 | `~/.config/yelo` | [Yelo](https://github.com/Dorky-Robot/yelo) S3/Glacier credentials | read-only |

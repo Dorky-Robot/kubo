@@ -86,6 +86,9 @@ RUN GO_V=$(curl -fsSL 'https://go.dev/dl/?mode=json' | jq -r '.[0].version') \
     && GOARCH=$(uname -m | sed 's/aarch64/arm64/' | sed 's/x86_64/amd64/') \
     && curl -fsSL "https://go.dev/dl/${GO_V}.linux-${GOARCH}.tar.gz" | tar -C /usr/local -xz
 
+# ── Diwa (git history knowledge base) ─────────────────────────────
+RUN curl -fsSL https://raw.githubusercontent.com/Dorky-Robot/diwa/main/install.sh | sh
+
 # ── Cloudflared (for tunnels / staging) ───────────────────────────
 RUN CF_ARCH=$(uname -m | sed 's/aarch64/arm64/' | sed 's/x86_64/amd64/') \
     && curl -fsSL "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${CF_ARCH}" -o /usr/local/bin/cloudflared \

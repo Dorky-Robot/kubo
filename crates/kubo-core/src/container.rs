@@ -47,7 +47,11 @@ fn append_host_credential_args(args: &mut Vec<String>) {
     let home = PathBuf::from(&home);
 
     // Read-write mounts (credentials that tools may update)
-    let rw_mounts: &[(&str, &str)] = &[(".config/gh", "/home/dev/.config/gh")];
+    let rw_mounts: &[(&str, &str)] = &[
+        (".config/gh", "/home/dev/.config/gh"),
+        // Diwa knowledge base — read-write so agents can index inside the container
+        (".diwa", "/home/dev/.diwa"),
+    ];
 
     for (src, dest) in rw_mounts {
         let host_path = home.join(src);

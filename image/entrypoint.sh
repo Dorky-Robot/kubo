@@ -46,6 +46,16 @@ elif [ -d "$SKEL" ] && [ "$(cat "$VERSION_FILE" 2>/dev/null)" != "$IMAGE_VERSION
     refresh_system_files
 fi
 
+# ── Corporate CA certificates ─────────────────────────────────────
+# If extra CA certs are mounted at /usr/local/share/ca-certificates/extra/,
+# install them into the system trust store. This supports corporate
+# TLS-intercepting proxies (Zscaler, Netskope, etc.) without requiring
+# any manual setup inside the container.
+EXTRA_CA_DIR=/usr/local/share/ca-certificates/extra
+if [ -d "$EXTRA_CA_DIR" ] && [ -n "$(ls -A "$EXTRA_CA_DIR" 2>/dev/null)" ]; then
+    sudo update-ca-certificates --fresh >/dev/null 2>&1
+fi
+
 # ── Git configuration ────────────────────────────────────────────
 if [ -n "$GIT_AUTHOR_NAME" ]; then
     git config --global user.name "$GIT_AUTHOR_NAME"

@@ -94,6 +94,61 @@ fn append_host_credential_args(args: &mut Vec<String>) {
     }
 }
 
+/// Export host CA certificates and mount them into the container.
+///
+/// Corporate networks often use TLS-intercepting proxies (Zscaler, Netskope, etc.)
+/// whose CA certificates are trusted by the host OS but not by the container.
+/// This function exports those certificates so the container's entrypoint can
+/// install them into the system trust store.
+///
+/// On macOS: exports all certificates from the System keychain.
+/// On Linux: copies /usr/local/share/ca-certificates/ if it has extra certs.
+///
+/// Users can also manually place .crt files in ~/.kubo/ca-certs/ which will
+/// always be mounted if the directory exists and is non-empty.
+fn append_ca_cert_args(args: &mut Vec<String>) {
+    let Some(home) = std::env::var_os("HOME") else {
+        return;
+    };
+    let home = PathBuf::from(&home);
+    let ca_dir = home.join(".kubo/ca-certs");
+
+    // Auto-export host system certificates on macOS
+    if cfg!(target_os = "macos") {
+        let _ = std::fs::create_dir_all(&ca_dir);
+        let export_path = ca_dir.join("host-system-certs.crt");
+        // Export all certs from the System keychain (includes corporate CA certs)
+        let output = Command::new("security")
+            .args(["find-certificate", "-a", "-p", "/Library/Keychains/System.keychain"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .output();
+        if let Ok(output) = output {
+            if output.status.success() && !output.stdout.is_empty() {
+                let _ = std::fs::write(&export_path, &output.stdout);
+            }
+        }
+    }
+
+    // Mount the CA cert directory if it exists and has files
+    if ca_dir.is_dir() {
+        let has_certs = std::fs::read_dir(&ca_dir)
+            .map(|entries| entries.filter_map(|e| e.ok()).any(|e| {
+                e.path().extension().is_some_and(|ext| ext == "crt" || ext == "pem")
+            }))
+            .unwrap_or(false);
+        if has_certs {
+            args.extend([
+                "-v".to_string(),
+                format!(
+                    "{}:/usr/local/share/ca-certificates/extra:ro",
+                    ca_dir.display()
+                ),
+            ]);
+        }
+    }
+}
+
 /// Append git identity and signing key env vars to a Docker `run` argument vector.
 fn append_git_identity_args(args: &mut Vec<String>) {
     for (key, env) in &[
@@ -617,8 +672,9 @@ impl Container {
             ]);
         }
 
-        // Mount host credentials and pass git identity
+        // Mount host credentials, CA certs, and pass git identity
         append_host_credential_args(&mut args);
+        append_ca_cert_args(&mut args);
         append_git_identity_args(&mut args);
 
         // Pass kubo name and image version so prompt/entrypoint can use them
@@ -941,8 +997,9 @@ impl Container {
             ]);
         }
 
-        // Mount host credentials and pass git identity
+        // Mount host credentials, CA certs, and pass git identity
         append_host_credential_args(&mut args);
+        append_ca_cert_args(&mut args);
         append_git_identity_args(&mut args);
 
         args.push(imported_image.clone());

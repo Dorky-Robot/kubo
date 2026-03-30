@@ -2,7 +2,7 @@
 
 ## What changed
 
-- Build diwa's ONNX runtime from source (fixes glibc linking on bookworm-slim)
+- Fix diwa in container: use load-dynamic ONNX loading with Microsoft's official shared library
 
 ## Steps
 

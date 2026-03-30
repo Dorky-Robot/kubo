@@ -20,7 +20,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # terminal
     zsh tmux jq htop less \
     # libs for rust crates
-    cmake libssl-dev libsqlite3-dev \
+    libssl-dev libsqlite3-dev \
     # clipboard (for katulong image paste → Claude Code via xclip + Xvfb)
     xclip xvfb \
     # misc
@@ -86,8 +86,19 @@ RUN GO_V=$(curl -fsSL 'https://go.dev/dl/?mode=json' | jq -r '.[0].version') \
     && GOARCH=$(uname -m | sed 's/aarch64/arm64/' | sed 's/x86_64/amd64/') \
     && curl -fsSL "https://go.dev/dl/${GO_V}.linux-${GOARCH}.tar.gz" | tar -C /usr/local -xz
 
+# ── ONNX Runtime (shared library for diwa's embedding model) ─────
+RUN ORT_VERSION="1.24.4" \
+    && ORT_ARCH=$(uname -m | sed 's/aarch64/aarch64/' | sed 's/x86_64/x64/') \
+    && curl -fsSL "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-${ORT_ARCH}-${ORT_VERSION}.tgz" \
+    | tar -xz -C /tmp \
+    && cp /tmp/onnxruntime-linux-${ORT_ARCH}-${ORT_VERSION}/lib/libonnxruntime.so /usr/local/lib/ \
+    && ldconfig \
+    && rm -rf /tmp/onnxruntime-*
+
+ENV ORT_DYLIB_PATH=/usr/local/lib/libonnxruntime.so
+
 # ── Diwa (git history knowledge base) ─────────────────────────────
-RUN ORT_STRATEGY=compile cargo install --git https://github.com/Dorky-Robot/diwa.git --locked \
+RUN cargo install --git https://github.com/Dorky-Robot/diwa.git --locked --features load-dynamic \
     && cp /usr/local/cargo/bin/diwa /usr/local/bin/diwa
 
 # ── Cloudflared (for tunnels / staging) ───────────────────────────

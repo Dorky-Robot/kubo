@@ -831,6 +831,28 @@ fn cmd_upgrade() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // Re-sign the binary on macOS — copying invalidates the ad-hoc signature
+    // and Apple Silicon kills unsigned binaries.
+    #[cfg(target_os = "macos")]
+    {
+        let codesign = if needs_sudo {
+            std::process::Command::new("sudo")
+                .args(["codesign", "-s", "-", "-f"])
+                .arg(&dest)
+                .status()
+        } else {
+            std::process::Command::new("codesign")
+                .args(["-s", "-", "-f"])
+                .arg(&dest)
+                .status()
+        };
+        if let Ok(s) = codesign
+            && !s.success()
+        {
+            eprintln!("warning: codesign failed — binary may be killed on Apple Silicon");
+        }
+    }
+
     std::fs::remove_dir_all(&tmpdir).ok();
     eprintln!("Upgraded to v{latest}.");
     Ok(())

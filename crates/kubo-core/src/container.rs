@@ -73,14 +73,13 @@ fn append_host_credential_args(args: &mut Vec<String>) {
         (".cloudflared", "/home/dev/.cloudflared"),
     ];
 
-    // Read-write mounts — katulong uploads need to be writable so
-    // the clipboard bridge can share images between host and container.
-    // Always create the directory so the mount is guaranteed to exist.
-    let katulong_uploads = home.join(".katulong/uploads");
-    let _ = std::fs::create_dir_all(&katulong_uploads);
+    // Mount ~/.katulong — gives kubos access to uploads (clipboard bridge),
+    // orchestrator credentials, and any future katulong state.
+    let katulong_dir = home.join(".katulong");
+    let _ = std::fs::create_dir_all(&katulong_dir);
     args.extend([
         "-v".to_string(),
-        format!("{}:/home/dev/.katulong/uploads", katulong_uploads.display()),
+        format!("{}:/home/dev/.katulong", katulong_dir.display()),
     ]);
 
     for (src, dest) in ro_mounts {

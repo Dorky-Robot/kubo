@@ -144,6 +144,14 @@ COPY --chown=dev:dev vimrc /home/dev/.vimrc
 # starts Xvfb on :99 but `export DISPLAY=:99` only affects PID 1's
 # children, not processes spawned by docker exec.
 ENV DISPLAY=:99
+
+# ── TLS / corporate proxy support ────────────────────────────────
+# Point Node.js at the system CA bundle so that any extra certificates
+# installed via update-ca-certificates are trusted automatically.
+# Users behind TLS-intercepting proxies can mount their CA certs at
+# /usr/local/share/ca-certificates/extra/ — the entrypoint picks
+# them up and runs update-ca-certificates on every start.
+ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
 COPY pbpaste pbcopy clip /usr/local/bin/
 USER root
 RUN chmod +x /usr/local/bin/pbpaste /usr/local/bin/pbcopy /usr/local/bin/clip

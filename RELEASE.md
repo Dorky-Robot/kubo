@@ -2,7 +2,9 @@
 
 ## What changed
 
-- Fix `kubo upgrade` failing with `Permission denied (os error 13)` on Homebrew installs. The non-sudo upgrade branch now `unlink`s the destination before copying, so a `0555`-mode file (Homebrew's default install permission) doesn't break the copy. As a side benefit, this also handles macOS's "can't open a running Mach-O binary for write" case — the running process keeps mapping the old (now unlinked) inode while `dest` is repointed at a fresh one.
+- Extract the upgrade binary-swap into a pure `replace_binary(src, dest)` function and lock in the 0.5.26 fix with two regression tests:
+  - `replace_binary_overwrites_readonly_target` — proves the production function handles the Homebrew `0555` install case.
+  - `naive_copy_fails_on_readonly_target` — reproduces the original `os error 13` against the bare `std::fs::copy` primitive, so any future refactor that drops the `unlink` will be caught immediately and explains *why* the unlink is load-bearing.
 
 ## Steps
 
@@ -12,7 +14,7 @@ Edit `Cargo.toml` in the workspace root — change `version` under `[workspace.p
 
 ```toml
 [workspace.package]
-version = "0.5.26"
+version = "0.5.27"
 ```
 
 ### 2. Make sure it builds
@@ -27,24 +29,19 @@ cargo fmt --check
 ### 3. Commit and tag
 
 ```bash
-git add Cargo.toml crates/kubo-cli/src/main.rs RELEASE.md
-git commit -m "0.5.26: fix kubo upgrade EACCES on Homebrew installs"
-git tag v0.5.26
+git add Cargo.toml crates/kubo-cli/Cargo.toml crates/kubo-cli/src/main.rs RELEASE.md
+git commit -m "0.5.27: TDD regression tests for kubo upgrade Homebrew fix"
+git tag v0.5.27
 git push origin main
-git push origin v0.5.26
+git push origin v0.5.27
 ```
 
 ### 4. Create the GitHub release
 
 ```bash
-gh release create v0.5.26 --title "v0.5.26" --notes "- Fix \`kubo upgrade\` failing with Permission denied on Homebrew installs
-- Non-sudo upgrade path now unlinks the destination before copying, so 0555-mode files (Homebrew's default) and currently-running Mach-O binaries on macOS both work"
+gh release create v0.5.27 --title "v0.5.27" --notes "- Extract upgrade binary-swap into a pure \`replace_binary\` function with TDD regression tests
+- New tests pin both halves of the 0.5.26 fix: production function works on a 0555 dest, and the broken primitive (\`std::fs::copy\` alone) is proven to still fail so the unlink can never silently regress"
 ```
-
-The release workflow (`.github/workflows/release.yml`) will automatically:
-- Build binaries for all 4 targets (x86_64/aarch64 x linux/macos)
-- Upload them to the release
-- Update the Homebrew tap formula at `Dorky-Robot/homebrew-tap`
 
 ### 5. Verify
 
@@ -52,11 +49,11 @@ After the workflow completes (~2 min):
 
 ```bash
 # Check the release has all 4 assets
-gh release view v0.5.26 --repo Dorky-Robot/kubo
+gh release view v0.5.27 --repo Dorky-Robot/kubo
 
-# Upgrade via brew (the broken self-upgrade in older versions can't bootstrap us here)
+# Upgrade via brew (older self-upgrade is still broken; this is one-time)
 brew update && brew upgrade dorky-robot/tap/kubo
 
-# Future upgrades from 0.5.26+ should now work via:
+# Future upgrades from 0.5.26+ now work via:
 kubo upgrade
 ```

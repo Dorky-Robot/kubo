@@ -11,3 +11,6 @@ path = "src/main.rs"
 [dependencies]
 kubo-core = { path = "../kubo-core" }
 clap = { version = "4", features = ["derive"] }
+
+[dev-dependencies]
+tempfile = "3"

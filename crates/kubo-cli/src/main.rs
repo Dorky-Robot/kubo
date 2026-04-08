@@ -823,26 +823,7 @@ fn cmd_upgrade() -> Result<(), Box<dyn std::error::Error>> {
             .arg(&dest)
             .status()?;
     } else {
-        // Unlink the destination before copying. Two reasons:
-        //   1. Homebrew installs binaries with mode 0555 (no write bit), so
-        //      `std::fs::copy` (which calls `open(O_WRONLY|O_TRUNC)` on the
-        //      target) fails with EACCES even though the parent dir is
-        //      writable. `unlink` only requires write on the parent dir, so
-        //      it succeeds, and the subsequent copy creates a fresh inode.
-        //   2. On macOS, opening a currently-mapped Mach-O binary for write
-        //      fails even when you own it. Unlinking + creating a new file
-        //      sidesteps this: the running process keeps mapping the old
-        //      (now unlinked) inode, and `dest` is repointed at a fresh one.
-        // We deliberately ignore the unlink error — if `dest` doesn't exist
-        // yet (first install into a custom dir, etc.), the copy will create
-        // it, and any other failure will surface from the copy itself.
-        let _ = std::fs::remove_file(&dest);
-        std::fs::copy(&extracted, &dest)?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755))?;
-        }
+        replace_binary(&extracted, &dest)?;
     }
 
     // Re-sign the binary on macOS — copying invalidates the ad-hoc signature
@@ -893,6 +874,39 @@ fn is_writable(path: &std::path::Path) -> bool {
         .unwrap_or(false)
 }
 
+/// Replace a binary at `dest` with the contents of `src`.
+///
+/// Used by `kubo upgrade` to swap the running binary for a freshly downloaded
+/// one. Both of the following had to be addressed and the **must not** regress:
+///
+/// 1. **Homebrew installs binaries with mode `0555`** (no write bit, even for
+///    the owner). A naive `std::fs::copy(src, dest)` calls
+///    `open(dest, O_WRONLY|O_CREAT|O_TRUNC)` which fails with `EACCES` on a
+///    `0555` file *even when the parent directory is writable*. The fix is
+///    `unlink(dest)` first — `unlink` only needs write on the parent
+///    directory, so it succeeds, and the subsequent copy creates a fresh
+///    inode at the path.
+///
+/// 2. **macOS won't let you open a currently-running Mach-O binary for
+///    write**, even when you own the file (`ETXTBSY`-equivalent → `EACCES`).
+///    Unlinking + creating a new file sidesteps this: the running process
+///    keeps mapping the old (now unlinked) inode, and `dest` is repointed at
+///    a freshly-created one.
+///
+/// We deliberately ignore `remove_file` errors — if `dest` doesn't exist yet
+/// (first install into a custom directory, etc.) the subsequent copy will
+/// create it, and any other failure will surface from the copy itself.
+fn replace_binary(src: &std::path::Path, dest: &std::path::Path) -> std::io::Result<()> {
+    let _ = std::fs::remove_file(dest);
+    std::fs::copy(src, dest)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(dest, std::fs::Permissions::from_mode(0o755))?;
+    }
+    Ok(())
+}
+
 fn cmd_build(no_cache: bool) -> Result<(), Box<dyn std::error::Error>> {
     Container::check_docker()?;
     kubo_core::image::build_image(no_cache)?;
@@ -903,4 +917,112 @@ fn cmd_build(no_cache: bool) -> Result<(), Box<dyn std::error::Error>> {
 fn cmd_version() -> Result<(), Box<dyn std::error::Error>> {
     println!("kubo {}", kubo_core::image::version());
     Ok(())
+}
+
+#[cfg(all(test, unix))]
+mod replace_binary_tests {
+    //! Regression tests for the `kubo upgrade` Homebrew bug.
+    //!
+    //! Background: Homebrew installs binaries with mode `0555` (read+execute,
+    //! no write — even for the owner). Versions of `kubo` prior to 0.5.26
+    //! called `std::fs::copy(src, dest)` directly inside the upgrade flow,
+    //! which fails with `Permission denied (os error 13)` against a `0555`
+    //! file *even when the parent directory is writable*. The fix is to
+    //! `unlink(dest)` before copying — `unlink` only requires write on the
+    //! parent dir, so it succeeds, and the subsequent copy creates a fresh
+    //! inode at the same path.
+    //!
+    //! These tests pin both halves of that contract:
+    //!
+    //!   - `replace_binary_overwrites_readonly_target` proves the production
+    //!     function (`replace_binary`) handles the Homebrew scenario.
+    //!   - `naive_copy_fails_on_readonly_target` reproduces the original bug
+    //!     against the bare `std::fs::copy` primitive, so any future refactor
+    //!     that drops the unlink and falls back to `std::fs::copy` alone will
+    //!     fail this test loudly.
+
+    use super::replace_binary;
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+
+    /// Mimic the Homebrew install layout: a writable parent dir containing a
+    /// `0555` "kubo" binary, plus a freshly extracted source binary in a
+    /// separate directory (mimicking `/tmp/kubo-upgrade-XXXX/`).
+    fn homebrew_like_fixture() -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf) {
+        let dir = tempfile::tempdir().expect("tempdir");
+
+        // Parent dir for the "installed" binary — writable to current user
+        // (mode 0755), the way `/opt/homebrew/Cellar/kubo/<v>/bin/` is.
+        let install_dir = dir.path().join("install");
+        fs::create_dir(&install_dir).expect("mkdir install");
+        fs::set_permissions(&install_dir, fs::Permissions::from_mode(0o755))
+            .expect("chmod install");
+
+        // The "old" binary at the install path — mode 0555 like Homebrew.
+        let dest = install_dir.join("kubo");
+        fs::write(&dest, b"old binary contents").expect("write dest");
+        fs::set_permissions(&dest, fs::Permissions::from_mode(0o555)).expect("chmod 0555 dest");
+
+        // The "new" binary in a separate temp dir, like a freshly extracted
+        // upgrade tarball under /tmp.
+        let download_dir = dir.path().join("download");
+        fs::create_dir(&download_dir).expect("mkdir download");
+        let src = download_dir.join("kubo");
+        fs::write(&src, b"new binary contents").expect("write src");
+        fs::set_permissions(&src, fs::Permissions::from_mode(0o755)).expect("chmod src");
+
+        (dir, src, dest)
+    }
+
+    #[test]
+    fn replace_binary_overwrites_readonly_target() {
+        let (_guard, src, dest) = homebrew_like_fixture();
+
+        // Sanity: the fixture really is mode 0555. If this ever flakes,
+        // the test machine has a quirky umask or filesystem.
+        let dest_mode_before = fs::metadata(&dest).unwrap().permissions().mode() & 0o777;
+        assert_eq!(
+            dest_mode_before, 0o555,
+            "fixture should produce a 0555 dest, got {dest_mode_before:o}"
+        );
+
+        // The actual production function under test.
+        replace_binary(&src, &dest).expect("replace_binary should succeed on a 0555 target");
+
+        // Contents must be the new binary.
+        let actual = fs::read(&dest).expect("read dest");
+        assert_eq!(
+            actual, b"new binary contents",
+            "dest should contain the new binary after replace_binary"
+        );
+
+        // Permissions must be 0755 (replace_binary normalizes to executable).
+        let dest_mode_after = fs::metadata(&dest).unwrap().permissions().mode() & 0o777;
+        assert_eq!(
+            dest_mode_after, 0o755,
+            "replace_binary should leave dest at 0755, got {dest_mode_after:o}"
+        );
+    }
+
+    #[test]
+    fn naive_copy_fails_on_readonly_target() {
+        // Lock in proof that the BROKEN primitive (std::fs::copy alone) really
+        // does fail on the Homebrew layout. If a future "simplification" ever
+        // removes the unlink from replace_binary and reverts to a bare copy,
+        // this test catches it AND documents why the unlink is load-bearing.
+        let (_guard, src, dest) = homebrew_like_fixture();
+
+        let result = fs::copy(&src, &dest);
+
+        let err = result.expect_err(
+            "std::fs::copy should fail with EACCES on a 0555 dest — \
+             if this ever passes, std behavior changed and the unlink \
+             in replace_binary may no longer be necessary",
+        );
+        assert_eq!(
+            err.kind(),
+            std::io::ErrorKind::PermissionDenied,
+            "expected PermissionDenied, got {err:?}"
+        );
+    }
 }

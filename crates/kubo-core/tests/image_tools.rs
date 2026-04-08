@@ -47,7 +47,6 @@ tool_test!(has_go, "go");
 // Dorky Robot tools
 tool_test!(has_diwa, "diwa");
 tool_test!(has_tunnels, "tunnels");
-tool_test!(has_sipag, "sipag");
 tool_test!(has_cloudflared, "cloudflared");
 
 // Shell

@@ -60,9 +60,6 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
     sh -s -- -y --default-toolchain stable --profile minimal \
     && rustup component add clippy rustfmt
 
-# ── sipag (PR automation CLI) ──────────────────────────────────────
-RUN curl -fsSL https://raw.githubusercontent.com/Dorky-Robot/sipag/main/scripts/install.sh | sh
-
 # ── Node.js (via fnm) ────────────────────────────────────────────
 ENV FNM_DIR=/usr/local/fnm
 ENV PATH="/usr/local/fnm/aliases/default/bin:${PATH}"

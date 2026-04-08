@@ -28,7 +28,6 @@ _kubo_welcome() {
   command -v gh         &>/dev/null && tools+="gh "
   command -v cloudflared &>/dev/null && tools+="cloudflared "
   command -v katulong   &>/dev/null && tools+="katulong "
-  command -v sipag      &>/dev/null && tools+="sipag "
 
   [[ -n "$tools" ]] && print "  ${D}tools${R}  ${D}${tools}${R}"
 

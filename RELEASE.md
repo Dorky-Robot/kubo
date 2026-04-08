@@ -2,7 +2,7 @@
 
 ## What changed
 
-- Mount host `~/.claude/{skills,agents,CLAUDE.md}` read-only into kubo containers so sandbox Claude inherits the same skills (implement-mode, diwa, kubo, tunnels, …) and global instructions as the host. Mounted at `/kubo-host/claude/*` and symlinked into `/home/dev/.claude` from the entrypoint to avoid shadowing the persistent home volume's `~/.claude` (sessions, projects, memory).
+- Fix `kubo upgrade` failing with `Permission denied (os error 13)` on Homebrew installs. The non-sudo upgrade branch now `unlink`s the destination before copying, so a `0555`-mode file (Homebrew's default install permission) doesn't break the copy. As a side benefit, this also handles macOS's "can't open a running Mach-O binary for write" case — the running process keeps mapping the old (now unlinked) inode while `dest` is repointed at a fresh one.
 
 ## Steps
 
@@ -12,7 +12,7 @@ Edit `Cargo.toml` in the workspace root — change `version` under `[workspace.p
 
 ```toml
 [workspace.package]
-version = "0.5.25"
+version = "0.5.26"
 ```
 
 ### 2. Make sure it builds
@@ -20,25 +20,25 @@ version = "0.5.25"
 ```bash
 cargo build --release
 cargo test --workspace
-cargo clippy --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+cargo fmt --check
 ```
 
 ### 3. Commit and tag
 
 ```bash
-git add Cargo.toml crates/kubo-core/src/container.rs image/entrypoint.sh RELEASE.md
-git commit -m "0.5.25: mount host ~/.claude skills + CLAUDE.md into containers"
-git tag v0.5.25
-git push origin main --tags
+git add Cargo.toml crates/kubo-cli/src/main.rs RELEASE.md
+git commit -m "0.5.26: fix kubo upgrade EACCES on Homebrew installs"
+git tag v0.5.26
+git push origin main
+git push origin v0.5.26
 ```
 
 ### 4. Create the GitHub release
 
 ```bash
-gh release create v0.5.25 --title "v0.5.25" --notes "- Mount host ~/.claude/{skills,agents,CLAUDE.md} read-only into kubo containers
-- Sandbox Claude inside a kubo now inherits the same skills and global rules as the host
-- Mounted at /kubo-host/claude/* and symlinked into /home/dev/.claude by the entrypoint
-- Persistent home volume's ~/.claude (sessions, projects, memory) is preserved untouched"
+gh release create v0.5.26 --title "v0.5.26" --notes "- Fix \`kubo upgrade\` failing with Permission denied on Homebrew installs
+- Non-sudo upgrade path now unlinks the destination before copying, so 0555-mode files (Homebrew's default) and currently-running Mach-O binaries on macOS both work"
 ```
 
 The release workflow (`.github/workflows/release.yml`) will automatically:
@@ -48,15 +48,15 @@ The release workflow (`.github/workflows/release.yml`) will automatically:
 
 ### 5. Verify
 
-After the workflow completes (~5 min):
+After the workflow completes (~2 min):
 
 ```bash
 # Check the release has all 4 assets
-gh release view v0.5.25 --repo Dorky-Robot/kubo
+gh release view v0.5.26 --repo Dorky-Robot/kubo
 
-# Check the tap was updated
-brew update && brew upgrade kubo
+# Upgrade via brew (the broken self-upgrade in older versions can't bootstrap us here)
+brew update && brew upgrade dorky-robot/tap/kubo
 
-# Rebuild containers
-kubo refresh
+# Future upgrades from 0.5.26+ should now work via:
+kubo upgrade
 ```

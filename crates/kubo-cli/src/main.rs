@@ -823,6 +823,20 @@ fn cmd_upgrade() -> Result<(), Box<dyn std::error::Error>> {
             .arg(&dest)
             .status()?;
     } else {
+        // Unlink the destination before copying. Two reasons:
+        //   1. Homebrew installs binaries with mode 0555 (no write bit), so
+        //      `std::fs::copy` (which calls `open(O_WRONLY|O_TRUNC)` on the
+        //      target) fails with EACCES even though the parent dir is
+        //      writable. `unlink` only requires write on the parent dir, so
+        //      it succeeds, and the subsequent copy creates a fresh inode.
+        //   2. On macOS, opening a currently-mapped Mach-O binary for write
+        //      fails even when you own it. Unlinking + creating a new file
+        //      sidesteps this: the running process keeps mapping the old
+        //      (now unlinked) inode, and `dest` is repointed at a fresh one.
+        // We deliberately ignore the unlink error — if `dest` doesn't exist
+        // yet (first install into a custom dir, etc.), the copy will create
+        // it, and any other failure will surface from the copy itself.
+        let _ = std::fs::remove_file(&dest);
         std::fs::copy(&extracted, &dest)?;
         #[cfg(unix)]
         {

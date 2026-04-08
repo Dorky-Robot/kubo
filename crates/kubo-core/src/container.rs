@@ -91,6 +91,29 @@ fn append_host_credential_args(args: &mut Vec<String>) {
             ]);
         }
     }
+
+    // Claude Code host config — read-only mounts of the host's skills,
+    // agents, and global CLAUDE.md so sandbox Claude inside the kubo
+    // inherits the same skills (implement-mode, diwa, etc.) and global
+    // instructions as the host. Mounted into /kubo-host/claude (a stable
+    // path *outside* /home/dev) so they don't shadow the persistent home
+    // volume's ~/.claude where sandbox Claude stores sessions, projects,
+    // and memory. The entrypoint symlinks them into ~/.claude.
+    let claude_ro_mounts: &[(&str, &str)] = &[
+        (".claude/skills", "/kubo-host/claude/skills"),
+        (".claude/agents", "/kubo-host/claude/agents"),
+        (".claude/CLAUDE.md", "/kubo-host/claude/CLAUDE.md"),
+    ];
+
+    for (src, dest) in claude_ro_mounts {
+        let host_path = home.join(src);
+        if host_path.exists() {
+            args.extend([
+                "-v".to_string(),
+                format!("{}:{dest}:ro", host_path.display()),
+            ]);
+        }
+    }
 }
 
 /// Append git identity and signing key env vars to a Docker `run` argument vector.

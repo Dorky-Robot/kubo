@@ -46,6 +46,33 @@ elif [ -d "$SKEL" ] && [ "$(cat "$VERSION_FILE" 2>/dev/null)" != "$IMAGE_VERSION
     refresh_system_files
 fi
 
+# ── Claude Code host config (skills, agents, global CLAUDE.md) ───
+# kubo mounts the host's ~/.claude/{skills,agents,CLAUDE.md} read-only
+# at /kubo-host/claude/* (a path outside /home/dev so it doesn't shadow
+# the persistent home volume's ~/.claude where sandbox Claude stores
+# sessions, projects, and memory). Symlink the mounted entries into
+# ~/.claude so sandbox Claude finds them in the standard location.
+#
+# This is what makes `claude` running inside the kubo inherit the same
+# skills (implement-mode, diwa, kubo, tunnels, …) and global rules as
+# the host's claude — without it, sandbox claude starts with an empty
+# ~/.claude/skills and re-discovers everything from scratch.
+if [ -d /kubo-host/claude ]; then
+    mkdir -p /home/dev/.claude
+    for entry in skills agents CLAUDE.md; do
+        host_entry="/kubo-host/claude/$entry"
+        link="/home/dev/.claude/$entry"
+        if [ -e "$host_entry" ]; then
+            # Replace any existing symlink so the link always tracks the
+            # mount, but never clobber a real file/dir at the link path —
+            # that would be sandbox-Claude user data.
+            if [ -L "$link" ] || [ ! -e "$link" ]; then
+                ln -sfn "$host_entry" "$link"
+            fi
+        fi
+    done
+fi
+
 # ── Git configuration ────────────────────────────────────────────
 if [ -n "$GIT_AUTHOR_NAME" ]; then
     git config --global user.name "$GIT_AUTHOR_NAME"

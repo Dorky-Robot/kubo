@@ -2,7 +2,7 @@
 
 ## What changed
 
-- Fix diwa in container: use load-dynamic ONNX loading with Microsoft's official shared library
+- Mount host `~/.claude/{skills,agents,CLAUDE.md}` read-only into kubo containers so sandbox Claude inherits the same skills (implement-mode, diwa, kubo, tunnels, …) and global instructions as the host. Mounted at `/kubo-host/claude/*` and symlinked into `/home/dev/.claude` from the entrypoint to avoid shadowing the persistent home volume's `~/.claude` (sessions, projects, memory).
 
 ## Steps
 
@@ -12,7 +12,7 @@ Edit `Cargo.toml` in the workspace root — change `version` under `[workspace.p
 
 ```toml
 [workspace.package]
-version = "0.5.12"
+version = "0.5.25"
 ```
 
 ### 2. Make sure it builds
@@ -26,19 +26,19 @@ cargo clippy --workspace
 ### 3. Commit and tag
 
 ```bash
-git add -A
-git commit -m "0.5.12: add tunnels CLI, update delta + gh, use buildx"
-git tag v0.5.12
+git add Cargo.toml crates/kubo-core/src/container.rs image/entrypoint.sh RELEASE.md
+git commit -m "0.5.25: mount host ~/.claude skills + CLAUDE.md into containers"
+git tag v0.5.25
 git push origin main --tags
 ```
 
 ### 4. Create the GitHub release
 
 ```bash
-gh release create v0.5.12 --title "v0.5.12" --notes "- Add tunnels CLI to container image
-- Switch to docker buildx build
-- Update delta to 0.19.1
-- Update GitHub CLI to 2.89.0"
+gh release create v0.5.25 --title "v0.5.25" --notes "- Mount host ~/.claude/{skills,agents,CLAUDE.md} read-only into kubo containers
+- Sandbox Claude inside a kubo now inherits the same skills and global rules as the host
+- Mounted at /kubo-host/claude/* and symlinked into /home/dev/.claude by the entrypoint
+- Persistent home volume's ~/.claude (sessions, projects, memory) is preserved untouched"
 ```
 
 The release workflow (`.github/workflows/release.yml`) will automatically:
@@ -52,7 +52,7 @@ After the workflow completes (~5 min):
 
 ```bash
 # Check the release has all 4 assets
-gh release view v0.5.12 --repo Dorky-Robot/kubo
+gh release view v0.5.25 --repo Dorky-Robot/kubo
 
 # Check the tap was updated
 brew update && brew upgrade kubo

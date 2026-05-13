@@ -73,7 +73,8 @@ RUN curl -fsSL https://fnm.vercel.app/install | bash -s -- --install-dir /usr/lo
     && /usr/local/fnm/fnm install 22 \
     && /usr/local/fnm/fnm default 22 \
     && /usr/local/fnm/fnm alias default 22 \
-    && npm install -g https://github.com/Dorky-Robot/yolo.git
+    && npm install -g https://github.com/Dorky-Robot/yolo.git \
+    && npm install -g @anthropic-ai/claude-code
 
 # ── Katulong (web terminal) ──────────────────────────────────────
 ENV HUSKY=0
@@ -121,10 +122,6 @@ RUN useradd -m -s /usr/bin/zsh -G sudo dev \
 
 USER dev
 WORKDIR /home/dev
-
-# ── Claude Code (install as dev user) ────────────────────────────
-RUN curl -fsSL https://claude.ai/install.sh | bash
-ENV PATH="/home/dev/.local/bin:${PATH}"
 
 # ── Oh My Zsh ────────────────────────────────────────────────────
 RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended \
